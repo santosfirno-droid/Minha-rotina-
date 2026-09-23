@@ -10,6 +10,7 @@ import { CreateRoutineModal } from './components/CreateRoutineModal';
 import { TaskEditModal } from './components/TaskEditModal';
 import { AuthModal } from './components/AuthModal';
 import { OnboardingModal } from './components/OnboardingModal';
+import { AppLogo } from './components/AppLogo';
 
 // Views
 import { TodayView } from './views/TodayView';
@@ -50,10 +51,15 @@ const MainAppContent: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-xs font-semibold text-slate-500">Carregando Minha Rotina...</p>
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div className="flex flex-col items-center gap-4 animate-fade-in text-center">
+          <AppLogo size="xl" className="shadow-2xl shadow-blue-500/20 animate-pulse" />
+          <div>
+            <h2 className="text-base font-extrabold text-white tracking-tight">
+              Minha Rotina Aí
+            </h2>
+            <p className="text-xs font-semibold text-slate-400 mt-1">Carregando...</p>
+          </div>
         </div>
       </div>
     );
@@ -65,7 +71,7 @@ const MainAppContent: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row text-slate-800">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col md:flex-row text-slate-800 dark:text-slate-100 transition-colors">
       {/* Navigation: Desktop Sidebar & Mobile Bottom Bar */}
       <Navigation
         activeTab={activeTab}

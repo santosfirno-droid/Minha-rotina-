@@ -1,222 +1,313 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserSettings } from '../types';
+import { supabase } from '../services/supabase';
 import {
-  getCurrentUser,
-  setCurrentUser,
-  getUsers,
-  saveUsers,
-  getUserSettings,
-  saveUserSettings,
-  initializeStarterData,
-  getRoutines,
-} from '../services/storage';
+  fetchUserSettings,
+  updateDbUserSettings,
+  insertStarterRoutinesForUser,
+} from '../services/supabaseDb';
 
 interface AuthContextType {
   user: User | null;
   settings: UserSettings;
   isLoading: boolean;
-  login: (email: string, pass: string) => { success: boolean; error?: string };
-  signup: (name: string, email: string, pass: string, securityQuestion: string, securityAnswer: string, categoryChoice?: string) => { success: boolean; error?: string };
-  recoverPassword: (email: string, answer: string, newPass: string) => { success: boolean; error?: string };
-  demoLogin: () => void;
-  logout: () => void;
-  updateProfile: (data: { name?: string; avatar?: string }) => void;
-  updateSettings: (newSettings: Partial<UserSettings>) => void;
-  getSecurityQuestion: (email: string) => string | null;
+  login: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
+  signup: (
+    name: string,
+    email: string,
+    pass: string,
+    categoryChoice?: string
+  ) => Promise<{ success: boolean; error?: string; message?: string }>;
+  recoverPassword: (email: string) => Promise<{ success: boolean; error?: string; message?: string }>;
+  logout: () => Promise<void>;
+  updateProfile: (data: { name?: string; avatar?: string }) => Promise<void>;
+  updateSettings: (newSettings: Partial<UserSettings>) => Promise<void>;
+  toggleTheme: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// In-browser lightweight hashed simulation for user privacy & safety
-function hashPassword(pass: string): string {
-  let hash = 0;
-  for (let i = 0; i < pass.length; i++) {
-    const char = pass.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash |= 0;
-  }
-  return `hash_${Math.abs(hash).toString(16)}`;
-}
-
-const PASS_MAP_KEY = 'minha_rotina_user_creds_v1';
-
-function getCreds(): Record<string, string> {
-  try {
-    return JSON.parse(localStorage.getItem(PASS_MAP_KEY) || '{}');
-  } catch {
-    return {};
-  }
-}
-
-function saveCred(userId: string, hashed: string) {
-  const map = getCreds();
-  map[userId] = hashed;
-  localStorage.setItem(PASS_MAP_KEY, JSON.stringify(map));
-}
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [settings, setSettings] = useState<UserSettings>({
-    userId: '',
-    theme: 'light',
-    startOfWeek: 1,
-    timeFormat: '24h',
-    soundEnabled: true,
-    notificationsEnabled: false,
-    celebrationEnabled: true,
+  const [settings, setSettings] = useState<UserSettings>(() => {
+    let initialTheme: 'light' | 'dark' | 'system' = 'light';
+    try {
+      const stored = localStorage.getItem('minha_rotina_theme');
+      if (stored === 'dark' || stored === 'light' || stored === 'system') {
+        initialTheme = stored;
+      }
+    } catch {}
+    return {
+      userId: '',
+      theme: initialTheme,
+      startOfWeek: 1,
+      timeFormat: '24h',
+      soundEnabled: true,
+      notificationsEnabled: false,
+      celebrationEnabled: true,
+    };
   });
   const [isLoading, setIsLoading] = useState(true);
 
+  // Apply dark mode class to documentElement whenever theme changes
   useEffect(() => {
-    const saved = getCurrentUser();
-    if (saved) {
-      setUser(saved);
-      setSettings(getUserSettings(saved.id));
-    }
-    setIsLoading(false);
-  }, []);
+    const root = document.documentElement;
+    const isDark =
+      settings.theme === 'dark' ||
+      (settings.theme === 'system' &&
+        typeof window !== 'undefined' &&
+        window.matchMedia('(prefers-color-scheme: dark)').matches);
 
-  const login = (email: string, pass: string) => {
-    const normalizedEmail = email.trim().toLowerCase();
-    const users = getUsers();
-    const found = users.find((u) => u.email.toLowerCase() === normalizedEmail);
-
-    if (!found) {
-      return { success: false, error: 'E-mail não encontrado no sistema.' };
-    }
-
-    const creds = getCreds();
-    const expectedHash = creds[found.id];
-    if (expectedHash && expectedHash !== hashPassword(pass)) {
-      return { success: false, error: 'Senha incorreta. Tente novamente.' };
-    }
-
-    setUser(found);
-    setCurrentUser(found);
-    setSettings(getUserSettings(found.id));
-    return { success: true };
-  };
-
-  const signup = (
-    name: string,
-    email: string,
-    pass: string,
-    securityQuestion: string,
-    securityAnswer: string,
-    categoryChoice = 'tudo'
-  ) => {
-    const normalizedEmail = email.trim().toLowerCase();
-    if (!normalizedEmail || !pass || !name) {
-      return { success: false, error: 'Preencha todos os campos obrigatórios.' };
-    }
-    if (pass.length < 4) {
-      return { success: false, error: 'A senha deve ter pelo menos 4 caracteres.' };
-    }
-
-    const users = getUsers();
-    if (users.some((u) => u.email.toLowerCase() === normalizedEmail)) {
-      return { success: false, error: 'Já existe uma conta com este e-mail.' };
-    }
-
-    const newUser: User = {
-      id: 'usr_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6),
-      name: name.trim(),
-      email: normalizedEmail,
-      avatar: '👤',
-      securityQuestion,
-      securityAnswer: securityAnswer.trim().toLowerCase(),
-      createdAt: new Date().toISOString(),
-    };
-
-    saveUsers([...users, newUser]);
-    saveCred(newUser.id, hashPassword(pass));
-
-    // Initialize starter routines based on onboarding choice
-    initializeStarterData(newUser.id, categoryChoice);
-
-    setUser(newUser);
-    setCurrentUser(newUser);
-    const initialSettings = getUserSettings(newUser.id);
-    setSettings(initialSettings);
-
-    return { success: true };
-  };
-
-  const getSecurityQuestion = (email: string): string | null => {
-    const users = getUsers();
-    const found = users.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
-    return found?.securityQuestion || 'Qual o nome do seu primeiro animal de estimação ou cidade natal?';
-  };
-
-  const recoverPassword = (email: string, answer: string, newPass: string) => {
-    const users = getUsers();
-    const found = users.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
-    if (!found) {
-      return { success: false, error: 'E-mail não encontrado.' };
-    }
-
-    if (found.securityAnswer && found.securityAnswer !== answer.trim().toLowerCase()) {
-      return { success: false, error: 'Resposta de segurança incorreta.' };
-    }
-
-    if (newPass.length < 4) {
-      return { success: false, error: 'A nova senha deve ter pelo menos 4 caracteres.' };
-    }
-
-    saveCred(found.id, hashPassword(newPass));
-    return { success: true };
-  };
-
-  const demoLogin = () => {
-    const demoEmail = 'demonstracao@minharotina.app';
-    const users = getUsers();
-    let demoUser = users.find((u) => u.email === demoEmail);
-
-    if (!demoUser) {
-      demoUser = {
-        id: 'usr_demo_vip',
-        name: 'Alexandre Silva',
-        email: demoEmail,
-        avatar: '✨',
-        securityQuestion: 'Qual sua cor favorita?',
-        securityAnswer: 'azul',
-        createdAt: new Date().toISOString(),
-      };
-      saveUsers([...users, demoUser]);
-      saveCred(demoUser.id, hashPassword('1234'));
-      initializeStarterData(demoUser.id, 'tudo');
+    if (isDark) {
+      root.classList.add('dark');
     } else {
-      // Ensure has routines if empty
-      const existingRoutines = getRoutines(demoUser.id);
-      if (existingRoutines.length === 0) {
-        initializeStarterData(demoUser.id, 'tudo');
+      root.classList.remove('dark');
+    }
+
+    try {
+      localStorage.setItem('minha_rotina_theme', settings.theme);
+    } catch {}
+  }, [settings.theme]);
+
+  // Initialize and listen to Supabase Auth State
+  useEffect(() => {
+    let isMounted = true;
+
+    async function initSession() {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) console.warn('Supabase getSession error:', error.message);
+
+        if (session?.user && isMounted) {
+          const authUser = session.user;
+          const userObj: User = {
+            id: authUser.id,
+            name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Usuário',
+            email: authUser.email || '',
+            avatar: authUser.user_metadata?.avatar || 'user',
+            createdAt: authUser.created_at,
+          };
+          setUser(userObj);
+
+          const dbSettings = await fetchUserSettings(authUser.id);
+          if (isMounted) setSettings(dbSettings);
+        } else if (isMounted) {
+          setUser(null);
+        }
+      } catch (err) {
+        console.error('Session initialization error:', err);
+      } finally {
+        if (isMounted) setIsLoading(false);
       }
     }
 
-    setUser(demoUser);
-    setCurrentUser(demoUser);
-    setSettings(getUserSettings(demoUser.id));
+    initSession();
+
+    // Listen to changes in auth
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        const authUser = session.user;
+        const userObj: User = {
+          id: authUser.id,
+          name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Usuário',
+          email: authUser.email || '',
+          avatar: authUser.user_metadata?.avatar || 'user',
+          createdAt: authUser.created_at,
+        };
+        setUser(userObj);
+
+        // Fetch settings from DB
+        const dbSettings = await fetchUserSettings(authUser.id);
+        setSettings(dbSettings);
+      } else {
+        setUser(null);
+      }
+      setIsLoading(false);
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const login = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const normalizedEmail = email.trim().toLowerCase();
+      if (!normalizedEmail || !pass) {
+        return { success: false, error: 'Informe e-mail e senha.' };
+      }
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password: pass,
+      });
+
+      if (error) {
+        if (error.message.includes('Invalid login credentials')) {
+          return { success: false, error: 'E-mail ou senha incorretos.' };
+        }
+        return { success: false, error: error.message };
+      }
+
+      if (data.user) {
+        const userObj: User = {
+          id: data.user.id,
+          name: data.user.user_metadata?.name || data.user.email?.split('@')[0] || 'Usuário',
+          email: data.user.email || '',
+          avatar: data.user.user_metadata?.avatar || 'user',
+          createdAt: data.user.created_at,
+        };
+        setUser(userObj);
+        const dbSettings = await fetchUserSettings(data.user.id);
+        setSettings(dbSettings);
+        return { success: true };
+      }
+
+      return { success: false, error: 'Não foi possível autenticar o usuário.' };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Falha ao conectar com o serviço de autenticação.' };
+    }
   };
 
-  const logout = () => {
-    setUser(null);
-    setCurrentUser(null);
+  const signup = async (
+    name: string,
+    email: string,
+    pass: string,
+    categoryChoice = 'tudo'
+  ): Promise<{ success: boolean; error?: string; message?: string }> => {
+    try {
+      const normalizedEmail = email.trim().toLowerCase();
+      const trimmedName = name.trim();
+
+      if (!normalizedEmail || !pass || !trimmedName) {
+        return { success: false, error: 'Preencha todos os campos obrigatórios.' };
+      }
+      if (pass.length < 6) {
+        return { success: false, error: 'A senha deve ter pelo menos 6 caracteres.' };
+      }
+
+      const { data, error } = await supabase.auth.signUp({
+        email: normalizedEmail,
+        password: pass,
+        options: {
+          data: {
+            name: trimmedName,
+            avatar: 'user',
+          },
+        },
+      });
+
+      if (error) {
+        if (error.message.includes('already registered')) {
+          return { success: false, error: 'Este e-mail já está cadastrado. Faça login ou recupere a senha.' };
+        }
+        return { success: false, error: error.message };
+      }
+
+      if (data.user) {
+        const userObj: User = {
+          id: data.user.id,
+          name: trimmedName,
+          email: normalizedEmail,
+          avatar: 'user',
+          createdAt: data.user.created_at,
+        };
+        setUser(userObj);
+
+        // Create default settings row in Supabase
+        const initialSettings = await fetchUserSettings(data.user.id);
+        setSettings(initialSettings);
+
+        // Seed initial routines for the user
+        try {
+          await insertStarterRoutinesForUser(data.user.id, categoryChoice);
+        } catch (starterErr) {
+          console.warn('Could not insert starter routines:', starterErr);
+        }
+
+        return {
+          success: true,
+          message: data.session
+            ? 'Conta criada com sucesso!'
+            : 'Conta criada! Verifique seu e-mail para confirmação se necessário.',
+        };
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Falha ao criar conta.' };
+    }
   };
 
-  const updateProfile = (data: { name?: string; avatar?: string }) => {
+  const recoverPassword = async (
+    email: string
+  ): Promise<{ success: boolean; error?: string; message?: string }> => {
+    try {
+      const normalizedEmail = email.trim().toLowerCase();
+      if (!normalizedEmail) {
+        return { success: false, error: 'Informe seu e-mail para recuperação.' };
+      }
+
+      const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail);
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      return {
+        success: true,
+        message: 'Link de redefinição de senha enviado para o seu e-mail!',
+      };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Falha ao solicitar redefinição de senha.' };
+    }
+  };
+
+  const logout = async (): Promise<void> => {
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.warn('Error during signout:', err);
+    } finally {
+      setUser(null);
+    }
+  };
+
+  const updateProfile = async (data: { name?: string; avatar?: string }): Promise<void> => {
     if (!user) return;
-    const updated: User = { ...user, ...data };
-    const users = getUsers().map((u) => (u.id === user.id ? updated : u));
-    saveUsers(users);
-    setUser(updated);
-    setCurrentUser(updated);
+    try {
+      const updatedMeta: Record<string, any> = {};
+      if (data.name !== undefined) updatedMeta.name = data.name;
+      if (data.avatar !== undefined) updatedMeta.avatar = data.avatar;
+
+      const { error } = await supabase.auth.updateUser({
+        data: updatedMeta,
+      });
+
+      if (error) console.error('Error updating user profile in Supabase:', error.message);
+
+      setUser((prev) => (prev ? { ...prev, ...data } : null));
+    } catch (err) {
+      console.error('Exception updating profile:', err);
+    }
   };
 
-  const updateSettings = (partial: Partial<UserSettings>) => {
-    if (!user) return;
-    const updated = { ...settings, ...partial, userId: user.id };
-    saveUserSettings(updated);
+  const updateSettings = async (partial: Partial<UserSettings>): Promise<void> => {
+    const updated = { ...settings, ...partial, userId: user?.id || '' };
     setSettings(updated);
+    if (partial.theme) {
+      try {
+        localStorage.setItem('minha_rotina_theme', partial.theme);
+      } catch {}
+    }
+    if (user?.id) {
+      await updateDbUserSettings(user.id, partial);
+    }
+  };
+
+  const toggleTheme = async (): Promise<void> => {
+    const nextTheme: 'light' | 'dark' = settings.theme === 'dark' ? 'light' : 'dark';
+    await updateSettings({ theme: nextTheme });
   };
 
   return (
@@ -228,11 +319,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         signup,
         recoverPassword,
-        demoLogin,
         logout,
         updateProfile,
         updateSettings,
-        getSecurityQuestion,
+        toggleTheme,
       }}
     >
       {children}

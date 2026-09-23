@@ -1,50 +1,70 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useRoutine } from '../context/RoutineContext';
-import { initializeStarterData } from '../services/storage';
-import { Sparkles, Check, ArrowRight } from 'lucide-react';
+import { insertStarterRoutinesForUser } from '../services/supabaseDb';
+import { AppLogo } from './AppLogo';
+import {
+  Sparkles,
+  Check,
+  ArrowRight,
+  BookOpen,
+  Briefcase,
+  Dumbbell,
+  Home,
+  Sprout,
+  Compass,
+  Loader2,
+  type LucideIcon,
+} from 'lucide-react';
 
 interface OnboardingModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const ONBOARDING_OPTIONS = [
+interface OnboardingOption {
+  id: string;
+  title: string;
+  icon: LucideIcon;
+  desc: string;
+}
+
+const ONBOARDING_OPTIONS: OnboardingOption[] = [
   {
     id: 'estudos',
     title: 'Estudos',
-    icon: '📚',
-    desc: 'Organizar blocos de estudo, revisões de matérias e exercícios',
+    icon: BookOpen,
+    desc: 'Blocos de estudo focado, revisões de matérias e exercícios',
   },
   {
     id: 'trabalho',
-    title: 'Trabalho & Produtividade',
-    icon: '💼',
-    desc: 'Foco em tarefas prioritárias, pausas produtivas e organização',
+    title: 'Trabalho & Foco',
+    icon: Briefcase,
+    desc: 'Prioridades do dia, pausas produtivas e organização profissional',
   },
   {
     id: 'treino',
-    title: 'Saúde e treino',
-    icon: '🏋️',
-    desc: 'Atividades físicas diárias, hidratação constante e boa alimentação',
+    title: 'Saúde e Treino',
+    icon: Dumbbell,
+    desc: 'Exercícios físicos diários, hidratação constante e autocuidado',
   },
   {
     id: 'casa',
-    title: 'Casa e rotina pessoal',
-    icon: '🏠',
-    desc: 'Organização do lar, cuidados pessoais e preparação do dia seguinte',
+    title: 'Casa e Vida Pessoal',
+    icon: Home,
+    desc: 'Organização do lar, cuidados pessoais e preparação para o dia seguinte',
   },
   {
     id: 'habitos',
-    title: 'Hábitos e disciplina',
-    icon: '🌱',
-    desc: 'Construir sequências sólidas de leitura, água e bem-estar',
+    title: 'Hábitos e Disciplina',
+    icon: Sprout,
+    desc: 'Sequências diárias de hábitos saudáveis, leitura e constância',
   },
   {
     id: 'tudo',
-    title: 'Um pouco de tudo',
-    icon: '✨',
-    desc: 'Equilíbrio completo entre manhã produtiva, estudos, treino e noite',
+    title: 'Rotina Completa',
+    icon: Sparkles,
+    desc: 'Equilíbrio ideal entre manhã ativa, tarefas de foco, treino e noite',
   },
 ];
 
@@ -52,33 +72,38 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
   const { user } = useAuth();
   const { refreshData } = useRoutine();
   const [selectedCategory, setSelectedCategory] = useState('tudo');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen || !user) return null;
 
-  const handleFinish = () => {
-    initializeStarterData(user.id, selectedCategory);
-    refreshData();
-    onClose();
+  const handleFinish = async () => {
+    setIsSubmitting(true);
+    try {
+      await insertStarterRoutinesForUser(user.id, selectedCategory);
+      await refreshData();
+      onClose();
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
       <div className="bg-white rounded-3xl max-w-lg w-full p-6 md:p-8 shadow-2xl border border-slate-100">
-        <div className="text-center mb-6">
-          <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-2xl text-white shadow-md shadow-blue-500/20">
-            🌱
-          </div>
-          <h2 className="text-2xl font-bold text-slate-900">
+        <div className="text-center mb-6 flex flex-col items-center">
+          <AppLogo size="lg" className="mb-3" />
+          <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">
             Vamos organizar sua rotina?
           </h2>
-          <p className="text-sm text-slate-500 mt-1">
-            Como você quer usar o Minha Rotina no seu dia a dia?
+          <p className="text-xs text-slate-500 mt-1">
+            Qual é seu principal foco com o Minha Rotina Aí?
           </p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-6">
           {ONBOARDING_OPTIONS.map((opt) => {
             const isSelected = selectedCategory === opt.id;
+            const Icon = opt.icon;
             return (
               <div
                 key={opt.id}
@@ -89,8 +114,14 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
                     : 'border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50'
                 }`}
               >
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-2xl">{opt.icon}</span>
+                <div className="flex items-center justify-between mb-2">
+                  <div
+                    className={`w-9 h-9 rounded-xl flex items-center justify-center ${
+                      isSelected ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                  </div>
                   {isSelected && (
                     <span className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center">
                       <Check className="w-3 h-3 stroke-[3]" />
@@ -107,15 +138,25 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
         </div>
 
         <p className="text-center text-xs text-slate-400 mb-6">
-          Criaremos sugestões práticas iniciais. Você poderá editar, excluir ou criar tudo do seu jeito.
+          Criaremos blocos iniciais para você começar agora mesmo. Você poderá editar tudo a qualquer momento.
         </p>
 
         <button
           onClick={handleFinish}
-          className="w-full py-3.5 px-6 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm shadow-md shadow-blue-500/20 flex items-center justify-center gap-2 transition-all cursor-pointer"
+          disabled={isSubmitting}
+          className="w-full py-3.5 px-6 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-md shadow-blue-500/20 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-60"
         >
-          <span>Começar agora</span>
-          <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+          {isSubmitting ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Preparando rotinas...</span>
+            </>
+          ) : (
+            <>
+              <span>Começar agora</span>
+              <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+            </>
+          )}
         </button>
       </div>
     </div>

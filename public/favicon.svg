@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="logo-bg-grad" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0F172A" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+    <linearGradient id="logo-arc-grad" x1="80" y1="360" x2="400" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0080FF" />
+      <stop offset="45%" stop-color="#00D2FF" />
+      <stop offset="100%" stop-color="#00F5A0" />
+    </linearGradient>
+    <linearGradient id="logo-arrow-grad" x1="340" y1="280" x2="400" y2="170" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#00D2FF" />
+      <stop offset="100%" stop-color="#00F5A0" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background squircle -->
+  <rect width="512" height="512" rx="128" fill="url(#logo-bg-grad)" />
+
+  <!-- Outer circular cycle path -->
+  <path
+    d="M 260 348 C 170 348 112 284 112 208 C 112 126 178 76 264 76 C 330 76 384 112 400 166"
+    stroke="url(#logo-arc-grad)"
+    stroke-width="38"
+    stroke-linecap="round"
+  />
+
+  <!-- Bottom loop tail -->
+  <path
+    d="M 224 388 C 286 388 348 356 380 300 C 400 264 408 228 408 214"
+    stroke="url(#logo-arc-grad)"
+    stroke-width="38"
+    stroke-linecap="round"
+  />
+
+  <!-- Arrow pointing upward at the end of the arc -->
+  <path
+    d="M 366 230 L 418 178 L 470 230"
+    stroke="url(#logo-arrow-grad)"
+    stroke-width="38"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- Center vertical clock marker at 12 o'clock -->
+  <line
+    x1="264"
+    y1="148"
+    x2="264"
+    y2="198"
+    stroke="url(#logo-arc-grad)"
+    stroke-width="30"
+    stroke-linecap="round"
+  />
+
+  <!-- Center checkmark -->
+  <path
+    d="M 200 236 L 256 292 L 328 220"
+    stroke="url(#logo-arc-grad)"
+    stroke-width="32"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

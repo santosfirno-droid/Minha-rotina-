@@ -8,15 +8,16 @@ import {
   FocusSession,
   DayProgress,
 } from '../types';
+import { resolveIconId } from '../components/RoutineIcon';
 
-const USERS_KEY = 'minha_rotina_users_v1';
-const CURRENT_USER_KEY = 'minha_rotina_current_user_v1';
-const SETTINGS_PREFIX = 'minha_rotina_settings_';
-const ROUTINES_PREFIX = 'minha_rotina_routines_';
-const TASKS_PREFIX = 'minha_rotina_tasks_';
-const COMPLETIONS_PREFIX = 'minha_rotina_task_comp_';
-const HABIT_COMPLETIONS_PREFIX = 'minha_rotina_habit_comp_';
-const FOCUS_SESSIONS_PREFIX = 'minha_rotina_focus_';
+const USERS_KEY = 'minha_rotina_users_v2';
+const CURRENT_USER_KEY = 'minha_rotina_current_user_v2';
+const SETTINGS_PREFIX = 'minha_rotina_settings_v2_';
+const ROUTINES_PREFIX = 'minha_rotina_routines_v2_';
+const TASKS_PREFIX = 'minha_rotina_tasks_v2_';
+const COMPLETIONS_PREFIX = 'minha_rotina_task_comp_v2_';
+const HABIT_COMPLETIONS_PREFIX = 'minha_rotina_habit_comp_v2_';
+const FOCUS_SESSIONS_PREFIX = 'minha_rotina_focus_v2_';
 
 // Helper to format Date to YYYY-MM-DD
 export function getTodayDateString(d: Date = new Date()): string {
@@ -35,7 +36,12 @@ export function generateId(): string {
 export function getUsers(): User[] {
   try {
     const raw = localStorage.getItem(USERS_KEY);
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return [];
+    const users: User[] = JSON.parse(raw);
+    return users.map((u) => ({
+      ...u,
+      avatar: u.avatar && u.avatar.length <= 2 ? 'user' : u.avatar || 'user',
+    }));
   } catch {
     return [];
   }
@@ -48,7 +54,12 @@ export function saveUsers(users: User[]): void {
 export function getCurrentUser(): User | null {
   try {
     const raw = localStorage.getItem(CURRENT_USER_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const u: User = JSON.parse(raw);
+    return {
+      ...u,
+      avatar: u.avatar && u.avatar.length <= 2 ? 'user' : u.avatar || 'user',
+    };
   } catch {
     return null;
   }
@@ -93,7 +104,13 @@ export function getRoutines(userId: string): Routine[] {
     const raw = localStorage.getItem(`${ROUTINES_PREFIX}${userId}`);
     if (!raw) return [];
     const parsed: Routine[] = JSON.parse(raw);
-    return parsed.sort((a, b) => a.order - b.order);
+    // Sanitize icons so no emojis linger
+    return parsed
+      .map((r) => ({
+        ...r,
+        icon: resolveIconId(r.icon),
+      }))
+      .sort((a, b) => a.order - b.order);
   } catch {
     return [];
   }
@@ -103,11 +120,15 @@ export function saveRoutines(userId: string, routines: Routine[]): void {
   localStorage.setItem(`${ROUTINES_PREFIX}${userId}`, JSON.stringify(routines));
 }
 
-export function createRoutine(userId: string, routineData: Omit<Routine, 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'order'>): Routine {
+export function createRoutine(
+  userId: string,
+  routineData: Omit<Routine, 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'order'>
+): Routine {
   const current = getRoutines(userId);
   const now = new Date().toISOString();
   const newRoutine: Routine = {
     ...routineData,
+    icon: resolveIconId(routineData.icon),
     id: generateId(),
     userId,
     order: current.length,
@@ -121,7 +142,11 @@ export function createRoutine(userId: string, routineData: Omit<Routine, 'id' | 
 
 export function updateRoutine(userId: string, routine: Routine): void {
   const current = getRoutines(userId);
-  const updated = current.map((r) => (r.id === routine.id ? { ...routine, updatedAt: new Date().toISOString() } : r));
+  const updated = current.map((r) =>
+    r.id === routine.id
+      ? { ...routine, icon: resolveIconId(routine.icon), updatedAt: new Date().toISOString() }
+      : r
+  );
   saveRoutines(userId, updated);
 }
 
@@ -185,7 +210,10 @@ export function saveTasks(userId: string, tasks: RoutineTask[]): void {
   localStorage.setItem(`${TASKS_PREFIX}${userId}`, JSON.stringify(tasks));
 }
 
-export function createTask(userId: string, taskData: Omit<RoutineTask, 'id' | 'userId' | 'createdAt' | 'order'>): RoutineTask {
+export function createTask(
+  userId: string,
+  taskData: Omit<RoutineTask, 'id' | 'userId' | 'createdAt' | 'order'>
+): RoutineTask {
   const current = getTasks(userId);
   const routineTasks = current.filter((t) => t.routineId === taskData.routineId);
   const newTask: RoutineTask = {
@@ -260,7 +288,9 @@ export function toggleTaskCompletion(
     saveTaskCompletions(userId, updated);
 
     if (isHabit) {
-      const habits = getHabitCompletions(userId).filter((h) => !(h.taskId === taskId && h.date === date));
+      const habits = getHabitCompletions(userId).filter(
+        (h) => !(h.taskId === taskId && h.date === date)
+      );
       saveHabitCompletions(userId, habits);
     }
     return { completed: false };
@@ -303,6 +333,10 @@ export function getFocusSessions(userId: string): FocusSession[] {
   }
 }
 
+export function saveFocusSessions(userId: string, sessions: FocusSession[]): void {
+  localStorage.setItem(`${FOCUS_SESSIONS_PREFIX}${userId}`, JSON.stringify(sessions));
+}
+
 export function recordFocusSession(session: Omit<FocusSession, 'id' | 'createdAt'>): FocusSession {
   const current = getFocusSessions(session.userId);
   const newSession: FocusSession = {
@@ -310,7 +344,10 @@ export function recordFocusSession(session: Omit<FocusSession, 'id' | 'createdAt
     id: generateId(),
     createdAt: new Date().toISOString(),
   };
-  localStorage.setItem(`${FOCUS_SESSIONS_PREFIX}${session.userId}`, JSON.stringify([...current, newSession]));
+  localStorage.setItem(
+    `${FOCUS_SESSIONS_PREFIX}${session.userId}`,
+    JSON.stringify([...current, newSession])
+  );
   return newSession;
 }
 
@@ -335,14 +372,12 @@ export function calculateHabitStreak(
     return { currentStreak: 0, bestStreak: 0, totalCompleted: 0, historyDates: [] };
   }
 
-  // Calculate current streak backwards from today or yesterday
   const today = getTodayDateString();
   const todayDate = new Date(today + 'T00:00:00');
-  
+
   let currentStreak = 0;
   let checkDate = new Date(todayDate);
 
-  // If today isn't completed yet, check if yesterday was completed to keep streak alive
   const todayCompleted = uniqueDates.includes(today);
   if (!todayCompleted) {
     checkDate.setDate(checkDate.getDate() - 1);
@@ -357,7 +392,6 @@ export function calculateHabitStreak(
       currentStreak++;
       checkDate.setDate(checkDate.getDate() - 1);
     } else if (!isApplicable) {
-      // Habit wasn't scheduled on this day, skip without breaking streak
       checkDate.setDate(checkDate.getDate() - 1);
     } else {
       break;
@@ -367,7 +401,6 @@ export function calculateHabitStreak(
   // Calculate best streak
   let bestStreak = currentStreak;
   let tempStreak = 0;
-  // Simple conservative estimate:
   for (let i = 0; i < uniqueDates.length; i++) {
     if (i === 0) {
       tempStreak = 1;
@@ -400,11 +433,15 @@ export function getDayProgress(userId: string, date: string = getTodayDateString
   const d = new Date(date + 'T00:00:00');
   const dayOfWeek = d.getDay();
 
-  const routines = getRoutines(userId).filter((r) => r.isActive && r.daysOfWeek.includes(dayOfWeek));
+  const routines = getRoutines(userId).filter(
+    (r) => r.isActive && r.daysOfWeek.includes(dayOfWeek)
+  );
   const activeRoutineIds = new Set(routines.map((r) => r.id));
 
   const allTasks = getTasks(userId).filter((t) => activeRoutineIds.has(t.routineId));
-  const completions = getTaskCompletions(userId).filter((c) => c.date === date && activeRoutineIds.has(c.routineId));
+  const completions = getTaskCompletions(userId).filter(
+    (c) => c.date === date && activeRoutineIds.has(c.routineId)
+  );
 
   const totalTasks = allTasks.length;
   const completedTasks = completions.length;
@@ -424,103 +461,190 @@ export function getDayProgress(userId: string, date: string = getTodayDateString
 
 // ---------------- STARTER ONBOARDING TEMPLATES ---------------- //
 
-export function initializeStarterData(userId: string, category: string): void {
+export function initializeStarterData(userId: string, category: string = 'tudo'): void {
   const allDays = [0, 1, 2, 3, 4, 5, 6];
   const weekdays = [1, 2, 3, 4, 5];
 
-  // Template sets
   if (category === 'estudos') {
-    const r1 = createRoutine(userId, {
-      name: 'Rotina de Estudos Matinal',
-      icon: '🌅',
-      description: 'Foco nos principais conteúdos da semana',
-      startTime: '08:00',
+    const rStudies = createRoutine(userId, {
+      name: 'Estudos & Foco',
+      icon: 'book-open',
+      description: 'Blocos de estudo, teoria e exercícios',
+      startTime: '14:00',
       daysOfWeek: weekdays,
       isActive: true,
     });
-    createTask(userId, { routineId: r1.id, name: 'Revisar flashcards e anotações', time: '08:00', durationMinutes: 20, isHabit: true, notes: 'Método de repetição espaçada' });
-    createTask(userId, { routineId: r1.id, name: 'Bloco 1: Teoria e Resumos', time: '08:30', durationMinutes: 50, isHabit: false });
-    createTask(userId, { routineId: r1.id, name: 'Resolver 10 exercícios práticos', time: '09:30', durationMinutes: 40, isHabit: true });
-
-    const r2 = createRoutine(userId, {
-      name: 'Revisão Noturna',
-      icon: '🌙',
-      description: 'Fechar o dia e preparar materiais',
-      startTime: '20:30',
-      daysOfWeek: allDays,
-      isActive: true,
+    createTask(userId, {
+      routineId: rStudies.id,
+      name: 'Estudar matemática',
+      time: '14:00',
+      durationMinutes: 45,
+      isHabit: false,
+      notes: 'Resolução de exercícios e teoria',
     });
-    createTask(userId, { routineId: r2.id, name: 'Organizar cadernos e PDF para amanhã', time: '20:30', durationMinutes: 15, isHabit: true });
-    createTask(userId, { routineId: r2.id, name: 'Leitura de artigo ou livro', time: '21:00', durationMinutes: 30, isHabit: true });
-  } else if (category === 'treino') {
-    const r1 = createRoutine(userId, {
-      name: 'Energia Matinal',
-      icon: '🌅',
-      description: 'Acordar o corpo e hidratação',
-      startTime: '06:30',
-      daysOfWeek: allDays,
-      isActive: true,
+    createTask(userId, {
+      routineId: rStudies.id,
+      name: 'Fazer atividade',
+      time: '15:00',
+      durationMinutes: 40,
+      isHabit: false,
+      notes: 'Fixação de conteúdo',
     });
-    createTask(userId, { routineId: r1.id, name: 'Beber 500ml de água', time: '06:30', durationMinutes: 5, isHabit: true });
-    createTask(userId, { routineId: r1.id, name: 'Alongamento dinâmico e mobilidade', time: '06:40', durationMinutes: 15, isHabit: true });
-    createTask(userId, { routineId: r1.id, name: 'Café da manhã reforçado e vitaminas', time: '07:00', durationMinutes: 25, isHabit: false });
-
-    const r2 = createRoutine(userId, {
-      name: 'Treino e Movimento',
-      icon: '🏋️',
-      description: 'Atividade física do dia',
-      startTime: '17:30',
-      daysOfWeek: [1, 2, 3, 4, 5, 6],
-      isActive: true,
+    createTask(userId, {
+      routineId: rStudies.id,
+      name: 'Revisão e anotações',
+      time: '16:00',
+      durationMinutes: 30,
+      isHabit: true,
+      notes: 'Leitura e resumo',
     });
-    createTask(userId, { routineId: r2.id, name: 'Treino principal (Musculação / Corrida)', time: '17:30', durationMinutes: 60, isHabit: true });
-    createTask(userId, { routineId: r2.id, name: 'Shake de recuperação ou lanche pós-treino', time: '18:40', durationMinutes: 15, isHabit: false });
-  } else {
-    // Default / "Um pouco de tudo" / Healthy balance
-    const r1 = createRoutine(userId, {
-      name: 'Rotina da Manhã',
-      icon: '🌅',
-      description: 'Começar o dia com clareza e energia',
-      startTime: '07:00',
-      daysOfWeek: allDays,
-      isActive: true,
-    });
-    createTask(userId, { routineId: r1.id, name: 'Arrumar a cama', time: '07:05', durationMinutes: 5, isHabit: true, notes: 'Primeira vitória do dia' });
-    createTask(userId, { routineId: r1.id, name: 'Escovar os dentes e higiene', time: '07:15', durationMinutes: 10, isHabit: false });
-    createTask(userId, { routineId: r1.id, name: 'Tomar café da manhã', time: '07:30', durationMinutes: 20, isHabit: false });
-    createTask(userId, { routineId: r1.id, name: 'Beber água (copo grande)', time: '07:55', durationMinutes: 2, isHabit: true });
-
-    const r2 = createRoutine(userId, {
-      name: 'Estudos & Trabalho',
-      icon: '📚',
-      description: 'Blocos de foco de alta qualidade',
-      startTime: '09:00',
-      daysOfWeek: weekdays,
-      isActive: true,
-    });
-    createTask(userId, { routineId: r2.id, name: 'Estudar matemática / tópico do dia', time: '09:00', durationMinutes: 50, isHabit: false });
-    createTask(userId, { routineId: r2.id, name: 'Fazer atividade ou revisão prática', time: '10:00', durationMinutes: 30, isHabit: false });
-
-    const r3 = createRoutine(userId, {
-      name: 'Treino & Saúde',
-      icon: '🏋️',
-      description: 'Cuidar do corpo e mente',
-      startTime: '17:30',
-      daysOfWeek: [1, 3, 5],
-      isActive: true,
-    });
-    createTask(userId, { routineId: r3.id, name: 'Treinar 45 minutos', time: '17:30', durationMinutes: 45, isHabit: true });
-
-    const r4 = createRoutine(userId, {
-      name: 'Rotina da Noite',
-      icon: '🌙',
-      description: 'Desacelerar e dormir bem',
-      startTime: '21:00',
-      daysOfWeek: allDays,
-      isActive: true,
-    });
-    createTask(userId, { routineId: r4.id, name: 'Organizar o quarto', time: '21:00', durationMinutes: 15, isHabit: true });
-    createTask(userId, { routineId: r4.id, name: 'Preparar coisas para amanhã', time: '21:20', durationMinutes: 10, isHabit: false });
-    createTask(userId, { routineId: r4.id, name: 'Desconectar das telas e relaxar', time: '21:40', durationMinutes: 20, isHabit: true });
+    return;
   }
+
+  if (category === 'treino') {
+    const rWorkout = createRoutine(userId, {
+      name: 'Treino & Saúde',
+      icon: 'dumbbell',
+      description: 'Condicionamento físico e energia diária',
+      startTime: '07:00',
+      daysOfWeek: weekdays,
+      isActive: true,
+    });
+    createTask(userId, {
+      routineId: rWorkout.id,
+      name: 'Beber água e alongar',
+      time: '07:00',
+      durationMinutes: 10,
+      isHabit: true,
+    });
+    createTask(userId, {
+      routineId: rWorkout.id,
+      name: 'Treinar',
+      time: '07:30',
+      durationMinutes: 50,
+      isHabit: true,
+      notes: 'Movimento e consistência',
+    });
+    return;
+  }
+
+  // Default: 'tudo' - Complete day organization
+  // 1. Rotina da manhã
+  const r1 = createRoutine(userId, {
+    name: 'Rotina da Manhã',
+    icon: 'sun',
+    description: 'Começar o dia com clareza e ritmo saudável',
+    startTime: '07:00',
+    daysOfWeek: allDays,
+    isActive: true,
+  });
+  createTask(userId, {
+    routineId: r1.id,
+    name: 'Arrumar a cama',
+    time: '07:05',
+    durationMinutes: 5,
+    isHabit: true,
+    notes: 'Primeira vitória do dia',
+  });
+  createTask(userId, {
+    routineId: r1.id,
+    name: 'Escovar os dentes',
+    time: '07:15',
+    durationMinutes: 10,
+    isHabit: false,
+  });
+  createTask(userId, {
+    routineId: r1.id,
+    name: 'Café da manhã',
+    time: '07:30',
+    durationMinutes: 20,
+    isHabit: false,
+  });
+
+  // 2. Estudos
+  const r2 = createRoutine(userId, {
+    name: 'Estudos',
+    icon: 'book-open',
+    description: 'Blocos de foco e desenvolvimento',
+    startTime: '14:00',
+    daysOfWeek: weekdays,
+    isActive: true,
+  });
+  createTask(userId, {
+    routineId: r2.id,
+    name: 'Estudar matemática',
+    time: '14:00',
+    durationMinutes: 45,
+    isHabit: false,
+    notes: 'Resolução de listas e teoria',
+  });
+  createTask(userId, {
+    routineId: r2.id,
+    name: 'Fazer atividade',
+    time: '15:00',
+    durationMinutes: 40,
+    isHabit: false,
+    notes: 'Exercícios práticos e fixação',
+  });
+
+  // 3. Treino
+  const r3 = createRoutine(userId, {
+    name: 'Treino',
+    icon: 'dumbbell',
+    description: 'Atividade física para saúde e energia',
+    startTime: '17:30',
+    daysOfWeek: weekdays,
+    isActive: true,
+  });
+  createTask(userId, {
+    routineId: r3.id,
+    name: 'Treinar',
+    time: '17:30',
+    durationMinutes: 50,
+    isHabit: true,
+    notes: 'Movimento e constância',
+  });
+
+  // 4. Casa
+  const r4 = createRoutine(userId, {
+    name: 'Casa',
+    icon: 'home',
+    description: 'Organização do espaço pessoal',
+    startTime: '19:00',
+    daysOfWeek: allDays,
+    isActive: true,
+  });
+  createTask(userId, {
+    routineId: r4.id,
+    name: 'Organizar quarto',
+    time: '19:00',
+    durationMinutes: 15,
+    isHabit: true,
+  });
+
+  // 5. Rotina da noite
+  const r5 = createRoutine(userId, {
+    name: 'Rotina da Noite',
+    icon: 'moon',
+    description: 'Desacelerar e preparar o dia seguinte',
+    startTime: '21:30',
+    daysOfWeek: allDays,
+    isActive: true,
+  });
+  createTask(userId, {
+    routineId: r5.id,
+    name: 'Preparar coisas para amanhã',
+    time: '21:30',
+    durationMinutes: 15,
+    isHabit: false,
+    notes: 'Roupas e mochila alinhadas',
+  });
+  createTask(userId, {
+    routineId: r5.id,
+    name: 'Desconectar e relaxar',
+    time: '22:00',
+    durationMinutes: 20,
+    isHabit: true,
+    notes: 'Leitura leve sem telas',
+  });
 }

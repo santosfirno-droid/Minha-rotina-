@@ -83,6 +83,29 @@ class SoundService {
     }
   }
 
+  // Timer start subtle sound
+  public playTimerStart() {
+    if (!this.soundEnabled) return;
+    try {
+      this.initCtx();
+      if (!this.audioCtx) return;
+      const now = this.audioCtx.currentTime;
+      const osc = this.audioCtx.createOscillator();
+      const gain = this.audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.exponentialRampToValueAtTime(659.25, now + 0.1);
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+      osc.connect(gain);
+      gain.connect(this.audioCtx.destination);
+      osc.start(now);
+      osc.stop(now + 0.15);
+    } catch {
+      // ignore
+    }
+  }
+
   // Timer finished alert chime
   public playTimerDone() {
     if (!this.soundEnabled) return;

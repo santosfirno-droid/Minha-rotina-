@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { RoutineTask, Routine } from '../types';
 import { useRoutine } from '../context/RoutineContext';
-import { X, Clock, Flame, FileText, CheckSquare } from 'lucide-react';
+import { X, Clock, Flame, FileText } from 'lucide-react';
 
 interface TaskEditModalProps {
   isOpen: boolean;
@@ -19,7 +19,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
   const { routines, addTask, editTask } = useRoutine();
 
   const [routineId, setRoutineId] = useState<string>(
-    taskToEdit ? taskToEdit.routineId : defaultRoutineId || (routines[0]?.id ?? '')
+    taskToEdit ? taskToEdit.routineId : defaultRoutineId || routines[0]?.id || ''
   );
   const [name, setName] = useState<string>(taskToEdit ? taskToEdit.name : '');
   const [time, setTime] = useState<string>(taskToEdit?.time || '');
@@ -30,9 +30,11 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
   const [notes, setNotes] = useState<string>(taskToEdit?.notes || '');
   const [error, setError] = useState<string>('');
 
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
       setError('Informe o nome da tarefa.');
@@ -44,33 +46,39 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
     }
 
     const durationVal = durationMinutes === '' ? undefined : Number(durationMinutes);
+    setIsSubmitting(true);
+    try {
+      if (taskToEdit) {
+        await editTask({
+          ...taskToEdit,
+          routineId,
+          name: name.trim(),
+          time: time || undefined,
+          durationMinutes: durationVal,
+          isHabit,
+          notes: notes.trim() || undefined,
+        });
+      } else {
+        await addTask({
+          routineId,
+          name: name.trim(),
+          time: time || undefined,
+          durationMinutes: durationVal,
+          isHabit,
+          notes: notes.trim() || undefined,
+        });
+      }
 
-    if (taskToEdit) {
-      editTask({
-        ...taskToEdit,
-        routineId,
-        name: name.trim(),
-        time: time || undefined,
-        durationMinutes: durationVal,
-        isHabit,
-        notes: notes.trim() || undefined,
-      });
-    } else {
-      addTask({
-        routineId,
-        name: name.trim(),
-        time: time || undefined,
-        durationMinutes: durationVal,
-        isHabit,
-        notes: notes.trim() || undefined,
-      });
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'Erro ao salvar tarefa.');
+    } finally {
+      setIsSubmitting(false);
     }
-
-    onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
       <div className="bg-white rounded-3xl max-w-md w-full p-6 md:p-7 shadow-2xl border border-slate-100">
         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
           <div>
@@ -108,7 +116,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
             >
               {routines.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {r.icon} {r.name}
+                  {r.name}
                 </option>
               ))}
             </select>
@@ -127,7 +135,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                 setName(e.target.value);
                 setError('');
               }}
-              placeholder="Ex: Escovar os dentes, Estudar 30 min, Treinar..."
+              placeholder="Ex: Arrumar cama, Estudar matemática, Treinar..."
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -156,7 +164,9 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                   min="0"
                   max="480"
                   value={durationMinutes}
-                  onChange={(e) => setDurationMinutes(e.target.value === '' ? '' : Number(e.target.value))}
+                  onChange={(e) =>
+                    setDurationMinutes(e.target.value === '' ? '' : Number(e.target.value))
+                  }
                   placeholder="Min"
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
@@ -168,9 +178,11 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
           </div>
 
           {/* Is Habit */}
-          <div className="p-3 bg-amber-50/60 rounded-xl border border-amber-200/70 flex items-center justify-between">
+          <div className="p-3 bg-amber-50/60 rounded-2xl border border-amber-200/70 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <span className="text-xl">🔥</span>
+              <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600">
+                <Flame className="w-4 h-4 fill-amber-500" />
+              </div>
               <div>
                 <p className="text-xs font-bold text-amber-900">Acompanhar como hábito</p>
                 <p className="text-[11px] text-amber-700">
@@ -198,7 +210,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
               rows={2}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Ex: Deixar garrafa de água cheia no quarto, focar em teoria..."
+              placeholder="Ex: Focar na resolução dos exercícios da lista..."
               className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -214,7 +226,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
             </button>
             <button
               type="submit"
-              className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm hover:shadow transition-all cursor-pointer"
+              className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs hover:shadow transition-all cursor-pointer"
             >
               {taskToEdit ? 'Salvar' : 'Adicionar Tarefa'}
             </button>

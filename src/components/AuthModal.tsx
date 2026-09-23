@@ -1,19 +1,17 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { AppLogo } from './AppLogo';
+import { ThemeToggle } from './ThemeToggle';
 import {
-  CheckCircle2,
   Lock,
   Mail,
   User as UserIcon,
-  ShieldQuestion,
-  KeyRound,
   ArrowRight,
-  Sparkles,
-  HelpCircle,
+  Loader2,
 } from 'lucide-react';
 
 export const AuthModal: React.FC = () => {
-  const { login, signup, recoverPassword, demoLogin, getSecurityQuestion } = useAuth();
+  const { login, signup, recoverPassword } = useAuth();
 
   const [mode, setMode] = useState<'login' | 'signup' | 'recovery'>('login');
 
@@ -21,74 +19,81 @@ export const AuthModal: React.FC = () => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [securityQuestion, setSecurityQuestion] = useState('Qual sua cidade natal ou primeiro animal?');
-  const [securityAnswer, setSecurityAnswer] = useState('');
   const [categoryChoice, setCategoryChoice] = useState('tudo');
 
   // Recovery state
   const [recoveryEmail, setRecoveryEmail] = useState('');
-  const [recoveryStep, setRecoveryStep] = useState<1 | 2>(1);
-  const [foundQuestion, setFoundQuestion] = useState<string | null>(null);
-  const [newPassword, setNewPassword] = useState('');
 
   // Status & error
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const res = login(email, password);
-    if (!res.success) {
-      setError(res.error || 'Erro ao entrar.');
+    setSuccessMessage('');
+    setIsSubmitting(true);
+    try {
+      const res = await login(email, password);
+      if (!res.success) {
+        setError(res.error || 'Erro ao entrar na conta.');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleSignup = (e: React.FormEvent) => {
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const res = signup(name, email, password, securityQuestion, securityAnswer, categoryChoice);
-    if (!res.success) {
-      setError(res.error || 'Erro ao cadastrar.');
+    setSuccessMessage('');
+    setIsSubmitting(true);
+    try {
+      const res = await signup(name, email, password, categoryChoice);
+      if (!res.success) {
+        setError(res.error || 'Erro ao criar conta.');
+      } else if (res.message) {
+        setSuccessMessage(res.message);
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleFindQuestion = (e: React.FormEvent) => {
+  const handleRecovery = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const q = getSecurityQuestion(recoveryEmail);
-    if (!q) {
-      setError('E-mail não localizado no sistema.');
-      return;
-    }
-    setFoundQuestion(q);
-    setRecoveryStep(2);
-  };
-
-  const handleFinishRecovery = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    const res = recoverPassword(recoveryEmail, securityAnswer, newPassword);
-    if (!res.success) {
-      setError(res.error || 'Erro ao redefinir senha.');
-    } else {
-      setSuccessMessage('Senha atualizada com sucesso! Agora você já pode entrar.');
-      setMode('login');
-      setEmail(recoveryEmail);
-      setPassword('');
-      setRecoveryStep(1);
+    setSuccessMessage('');
+    setIsSubmitting(true);
+    try {
+      const res = await recoverPassword(recoveryEmail);
+      if (!res.success) {
+        setError(res.error || 'Não foi possível solicitar a recuperação.');
+      } else {
+        setSuccessMessage(
+          res.message || 'Link de recuperação de senha enviado com sucesso para o seu e-mail!'
+        );
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
-      <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-100 my-auto animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+      <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-100 my-auto animate-fade-in relative">
+        {/* Quick theme toggle */}
+        <div className="absolute top-5 right-5">
+          <ThemeToggle variant="compact" />
+        </div>
+
         {/* Brand header */}
-        <div className="text-center mb-6">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-blue-500 mx-auto flex items-center justify-center text-white shadow-md shadow-blue-500/20 mb-3">
-            <CheckCircle2 className="w-7 h-7 stroke-[2.5]" />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Minha Rotina</h1>
+        <div className="text-center mb-6 flex flex-col items-center">
+          <AppLogo size="lg" className="mb-3" />
+          <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">
+            Minha Rotina Aí
+          </h1>
           <p className="text-xs text-slate-500 font-medium mt-0.5">
             Organize seu dia. Viva no seu ritmo.
           </p>
@@ -101,9 +106,12 @@ export const AuthModal: React.FC = () => {
               onClick={() => {
                 setMode('login');
                 setError('');
+                setSuccessMessage('');
               }}
               className={`py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
-                mode === 'login' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                mode === 'login'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-800'
               }`}
             >
               Entrar
@@ -112,9 +120,12 @@ export const AuthModal: React.FC = () => {
               onClick={() => {
                 setMode('signup');
                 setError('');
+                setSuccessMessage('');
               }}
               className={`py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
-                mode === 'signup' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                mode === 'signup'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-800'
               }`}
             >
               Criar Conta
@@ -162,6 +173,7 @@ export const AuthModal: React.FC = () => {
                     setMode('recovery');
                     setRecoveryEmail(email);
                     setError('');
+                    setSuccessMessage('');
                   }}
                   className="text-xs text-blue-600 hover:underline font-medium cursor-pointer"
                 >
@@ -180,27 +192,27 @@ export const AuthModal: React.FC = () => {
 
             <button
               type="submit"
-              className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm shadow-md shadow-blue-500/20 transition-all cursor-pointer"
+              disabled={isSubmitting}
+              className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-md shadow-blue-500/20 transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-60"
             >
-              Acessar Minha Rotina
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Acessando conta...</span>
+                </>
+              ) : (
+                <>
+                  <span>Acessar Minha Rotina Aí</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
             </button>
-
-            <div className="pt-2 text-center">
-              <button
-                type="button"
-                onClick={demoLogin}
-                className="w-full py-2.5 px-4 rounded-xl border border-blue-200 bg-blue-50/50 hover:bg-blue-50 text-blue-700 font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
-              >
-                <Sparkles className="w-4 h-4 text-blue-600" />
-                <span>Entrar como Demonstração (1 Clique)</span>
-              </button>
-            </div>
           </form>
         )}
 
         {/* ================= SIGNUP FORM ================= */}
         {mode === 'signup' && (
-          <form onSubmit={handleSignup} className="space-y-3.5 max-h-[70vh] overflow-y-auto pr-1">
+          <form onSubmit={handleSignup} className="space-y-3.5">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
                 <UserIcon className="w-3.5 h-3.5 text-slate-400" /> Nome Completo
@@ -210,8 +222,8 @@ export const AuthModal: React.FC = () => {
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Seu nome ou apelido"
-                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
+                placeholder="Como deseja ser chamado?"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
               />
             </div>
 
@@ -225,51 +237,22 @@ export const AuthModal: React.FC = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="seu.email@exemplo.com"
-                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
               />
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
-                <Lock className="w-3.5 h-3.5 text-slate-400" /> Senha (mínimo 4 dígitos)
+                <Lock className="w-3.5 h-3.5 text-slate-400" /> Senha (mínimo 6 caracteres)
               </label>
               <input
                 type="password"
                 required
-                minLength={4}
+                minLength={6}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
-                <ShieldQuestion className="w-3.5 h-3.5 text-slate-400" /> Pergunta de Segurança para Recuperação
-              </label>
-              <select
-                value={securityQuestion}
-                onChange={(e) => setSecurityQuestion(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="Qual sua cidade natal ou primeiro animal?">Qual sua cidade natal ou primeiro animal?</option>
-                <option value="Qual o nome da sua escola de infância?">Qual o nome da sua escola de infância?</option>
-                <option value="Qual sua comida ou fruta favorita?">Qual sua comida ou fruta favorita?</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Sua Resposta Secreta
-              </label>
-              <input
-                type="text"
-                required
-                value={securityAnswer}
-                onChange={(e) => setSecurityAnswer(e.target.value)}
-                placeholder="Ex: Rex, Curitiba, Melancia..."
-                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
               />
             </div>
 
@@ -280,19 +263,30 @@ export const AuthModal: React.FC = () => {
               <select
                 value={categoryChoice}
                 onChange={(e) => setCategoryChoice(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
               >
-                <option value="tudo">✨ Um pouco de tudo (Manhã, Estudos, Treino, Noite)</option>
-                <option value="estudos">📚 Estudos & Foco Acadêmico</option>
-                <option value="treino">🏋️ Saúde, Treino & Energia</option>
+                <option value="tudo">Rotina Completa (Manhã, Foco & Desconexão)</option>
+                <option value="estudos">Estudos & Foco Acadêmico</option>
+                <option value="trabalho">Jornada Produtiva & Trabalho</option>
               </select>
             </div>
 
             <button
               type="submit"
-              className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm shadow-md shadow-blue-500/20 transition-all cursor-pointer mt-2"
+              disabled={isSubmitting}
+              className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-md shadow-blue-500/20 transition-all cursor-pointer mt-2 flex items-center justify-center gap-2 disabled:opacity-60"
             >
-              Criar Conta e Começar
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Criando conta no Supabase...</span>
+                </>
+              ) : (
+                <>
+                  <span>Criar Conta e Começar</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
             </button>
           </form>
         )}
@@ -303,86 +297,54 @@ export const AuthModal: React.FC = () => {
             <div className="flex items-center gap-2 mb-2">
               <button
                 type="button"
-                onClick={() => setMode('login')}
+                onClick={() => {
+                  setMode('login');
+                  setError('');
+                  setSuccessMessage('');
+                }}
                 className="text-xs text-blue-600 hover:underline font-semibold cursor-pointer"
               >
                 ← Voltar ao Login
               </button>
             </div>
 
-            <h3 className="text-base font-bold text-slate-900">
-              Recuperação de Senha
-            </h3>
-            <p className="text-xs text-slate-500">
-              Responda sua pergunta de segurança para definir uma nova senha instantaneamente.
-            </p>
+            <div>
+              <h3 className="text-base font-bold text-slate-900">Recuperação de Senha</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Enviaremos um link seguro para o seu e-mail para você redefinir sua senha.
+              </p>
+            </div>
 
-            {recoveryStep === 1 ? (
-              <form onSubmit={handleFindQuestion} className="space-y-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                    Digite seu e-mail cadastrado
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    value={recoveryEmail}
-                    onChange={(e) => setRecoveryEmail(e.target.value)}
-                    placeholder="seu.email@exemplo.com"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition-all cursor-pointer"
-                >
-                  Avançar
-                </button>
-              </form>
-            ) : (
-              <form onSubmit={handleFinishRecovery} className="space-y-3">
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                  <span className="text-[11px] text-slate-400 font-semibold block uppercase">Pergunta cadastrada:</span>
-                  <p className="text-xs font-semibold text-slate-800 mt-0.5">{foundQuestion}</p>
-                </div>
+            <form onSubmit={handleRecovery} className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5 text-slate-400" /> Digite seu e-mail cadastrado
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={recoveryEmail}
+                  onChange={(e) => setRecoveryEmail(e.target.value)}
+                  placeholder="seu.email@exemplo.com"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Sua resposta
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={securityAnswer}
-                    onChange={(e) => setSecurityAnswer(e.target.value)}
-                    placeholder="Sua resposta secreta"
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Nova Senha
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    minLength={4}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Nova senha (mínimo 4 dígitos)"
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition-all cursor-pointer"
-                >
-                  Salvar Nova Senha
-                </button>
-              </form>
-            )}
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-60"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Enviando...</span>
+                  </>
+                ) : (
+                  <span>Enviar Link de Recuperação</span>
+                )}
+              </button>
+            </form>
           </div>
         )}
       </div>

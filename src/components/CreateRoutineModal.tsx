@@ -1,14 +1,9 @@
 import React, { useState } from 'react';
 import { Routine, RoutineTask } from '../types';
 import { useRoutine } from '../context/RoutineContext';
-import { X, Plus, Trash2, Clock, Calendar, Sparkles } from 'lucide-react';
+import { ROUTINE_ICONS, RoutineIcon, resolveIconId } from './RoutineIcon';
+import { X, Plus, Trash2, Clock, Calendar, Flame } from 'lucide-react';
 import { WEEKDAYS_SHORT } from '../utils/date';
-
-const POPULAR_ICONS = [
-  '🌅', '🌙', '📚', '🏋️', '🏠', '💼', '🧘', '💧', 
-  '☕', '😴', '🎯', '🎨', '🥑', '⚡', '🚀', '🧠',
-  '💻', '🏃', '🧹', '📝', '🥗', '🚶', '🎸', '🌱'
-];
 
 interface CreateRoutineModalProps {
   isOpen: boolean;
@@ -29,23 +24,28 @@ export const CreateRoutineModal: React.FC<CreateRoutineModalProps> = ({
   onClose,
   routineToEdit,
 }) => {
-  const { addRoutine, editRoutine, addTask, tasks } = useRoutine();
+  const { addRoutine, editRoutine, addTask } = useRoutine();
 
   const [name, setName] = useState(routineToEdit ? routineToEdit.name : '');
-  const [icon, setIcon] = useState(routineToEdit ? routineToEdit.icon : '🌅');
-  const [description, setDescription] = useState(routineToEdit ? routineToEdit.description || '' : '');
-  const [startTime, setStartTime] = useState(routineToEdit ? routineToEdit.startTime || '' : '07:00');
+  const [icon, setIcon] = useState(routineToEdit ? resolveIconId(routineToEdit.icon) : 'sun');
+  const [description, setDescription] = useState(
+    routineToEdit ? routineToEdit.description || '' : ''
+  );
+  const [startTime, setStartTime] = useState(
+    routineToEdit ? routineToEdit.startTime || '' : '07:00'
+  );
   const [daysOfWeek, setDaysOfWeek] = useState<number[]>(
     routineToEdit ? routineToEdit.daysOfWeek : [0, 1, 2, 3, 4, 5, 6]
   );
 
-  // New tasks to add alongside routine creation if creating new
   const [initialTasks, setInitialTasks] = useState<TempTask[]>([
     { name: '', time: '', durationMinutes: 15, isHabit: false, notes: '' },
   ]);
 
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [error, setError] = useState('');
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
 
@@ -60,7 +60,10 @@ export const CreateRoutineModal: React.FC<CreateRoutineModalProps> = ({
   };
 
   const handleAddTaskRow = () => {
-    setInitialTasks([...initialTasks, { name: '', time: '', durationMinutes: 15, isHabit: false, notes: '' }]);
+    setInitialTasks([
+      ...initialTasks,
+      { name: '', time: '', durationMinutes: 15, isHabit: false, notes: '' },
+    ]);
   };
 
   const handleUpdateTaskRow = (index: number, field: keyof TempTask, value: any) => {
@@ -77,52 +80,59 @@ export const CreateRoutineModal: React.FC<CreateRoutineModalProps> = ({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
       setError('Por favor, informe o nome da rotina.');
       return;
     }
 
-    if (routineToEdit) {
-      editRoutine({
-        ...routineToEdit,
-        name: name.trim(),
-        icon,
-        description: description.trim() || undefined,
-        startTime: startTime || undefined,
-        daysOfWeek,
-      });
-    } else {
-      const newRoutine = addRoutine({
-        name: name.trim(),
-        icon,
-        description: description.trim() || undefined,
-        startTime: startTime || undefined,
-        daysOfWeek,
-        isActive: true,
-      });
+    setIsSubmitting(true);
+    try {
+      if (routineToEdit) {
+        await editRoutine({
+          ...routineToEdit,
+          name: name.trim(),
+          icon,
+          description: description.trim() || undefined,
+          startTime: startTime || undefined,
+          daysOfWeek,
+        });
+      } else {
+        const newRoutine = await addRoutine({
+          name: name.trim(),
+          icon,
+          description: description.trim() || undefined,
+          startTime: startTime || undefined,
+          daysOfWeek,
+          isActive: true,
+        });
 
-      // Add non-empty initial tasks
-      initialTasks.forEach((t) => {
-        if (t.name.trim()) {
-          addTask({
-            routineId: newRoutine.id,
-            name: t.name.trim(),
-            time: t.time || undefined,
-            durationMinutes: Number(t.durationMinutes) || undefined,
-            isHabit: t.isHabit,
-            notes: t.notes.trim() || undefined,
-          });
+        // Add non-empty initial tasks sequentially
+        for (const t of initialTasks) {
+          if (t.name.trim()) {
+            await addTask({
+              routineId: newRoutine.id,
+              name: t.name.trim(),
+              time: t.time || undefined,
+              durationMinutes: Number(t.durationMinutes) || undefined,
+              isHabit: t.isHabit,
+              notes: t.notes.trim() || undefined,
+            });
+          }
         }
-      });
-    }
+      }
 
-    onClose();
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'Erro ao salvar rotina.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
       <div className="bg-white rounded-3xl max-w-xl w-full p-6 md:p-8 shadow-2xl border border-slate-100 max-h-[92vh] flex flex-col my-auto animate-fade-in">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-100">
@@ -157,25 +167,31 @@ export const CreateRoutineModal: React.FC<CreateRoutineModalProps> = ({
               <button
                 type="button"
                 onClick={() => setShowIconPicker(!showIconPicker)}
-                className="w-12 h-12 rounded-2xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-2xl border border-slate-200 cursor-pointer transition-colors"
-                title="Escolher ícone"
+                className="w-12 h-12 rounded-2xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-blue-600 border border-slate-200 cursor-pointer transition-colors"
+                title="Escolher ícone vetorial"
               >
-                {icon}
+                <RoutineIcon icon={icon} className="w-6 h-6" />
               </button>
 
               {showIconPicker && (
-                <div className="absolute top-16 left-0 z-20 bg-white border border-slate-200 shadow-xl rounded-2xl p-3 grid grid-cols-6 gap-2 w-64">
-                  {POPULAR_ICONS.map((emoji) => (
+                <div className="absolute top-16 left-0 z-30 bg-white border border-slate-200 shadow-xl rounded-2xl p-3 grid grid-cols-4 gap-2 w-64 animate-fade-in">
+                  {ROUTINE_ICONS.map((opt) => (
                     <button
-                      key={emoji}
+                      key={opt.id}
                       type="button"
                       onClick={() => {
-                        setIcon(emoji);
+                        setIcon(opt.id);
                         setShowIconPicker(false);
                       }}
-                      className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-lg cursor-pointer"
+                      className={`h-11 rounded-xl flex flex-col items-center justify-center gap-1 text-slate-700 hover:bg-blue-50 hover:text-blue-600 cursor-pointer transition-colors ${
+                        icon === opt.id ? 'bg-blue-50 text-blue-600 border border-blue-200' : ''
+                      }`}
+                      title={opt.name}
                     >
-                      {emoji}
+                      <opt.icon className="w-4 h-4" />
+                      <span className="text-[9px] font-medium leading-none truncate max-w-[48px]">
+                        {opt.name}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -194,7 +210,7 @@ export const CreateRoutineModal: React.FC<CreateRoutineModalProps> = ({
                   setName(e.target.value);
                   setError('');
                 }}
-                placeholder="Ex: Rotina da manhã, Treino, Estudos..."
+                placeholder="Ex: Rotina da manhã, Estudos, Treino, Casa..."
                 className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium text-slate-800"
               />
             </div>
@@ -209,16 +225,16 @@ export const CreateRoutineModal: React.FC<CreateRoutineModalProps> = ({
               type="text"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Ex: Foco e clareza mental para iniciar o dia"
+              placeholder="Ex: Clareza, consistência e foco"
               className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm text-slate-700"
             />
           </div>
 
-          {/* Start Time & Presets */}
+          {/* Start Time */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1.5">
               <Clock className="w-3.5 h-3.5 text-slate-400" />
-              Horário de início sugerido
+              Horário sugerido
             </label>
             <input
               type="time"
@@ -300,7 +316,7 @@ export const CreateRoutineModal: React.FC<CreateRoutineModalProps> = ({
                 {initialTasks.map((task, idx) => (
                   <div
                     key={idx}
-                    className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 space-y-2"
+                    className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-2"
                   >
                     <div className="flex items-center gap-2">
                       <input
@@ -338,7 +354,9 @@ export const CreateRoutineModal: React.FC<CreateRoutineModalProps> = ({
                           min="1"
                           max="240"
                           value={task.durationMinutes}
-                          onChange={(e) => handleUpdateTaskRow(idx, 'durationMinutes', e.target.value)}
+                          onChange={(e) =>
+                            handleUpdateTaskRow(idx, 'durationMinutes', e.target.value)
+                          }
                           className="w-14 px-2 py-0.5 rounded border border-slate-200 bg-white text-xs font-mono text-center"
                         />
                         <span className="text-[11px] text-slate-400">min</span>
@@ -351,7 +369,10 @@ export const CreateRoutineModal: React.FC<CreateRoutineModalProps> = ({
                           onChange={(e) => handleUpdateTaskRow(idx, 'isHabit', e.target.checked)}
                           className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
                         />
-                        <span className="text-xs font-medium text-slate-700">🔥 É hábito?</span>
+                        <span className="text-xs font-medium text-slate-700 flex items-center gap-1">
+                          <Flame className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                          Hábito?
+                        </span>
                       </label>
                     </div>
                   </div>
@@ -365,13 +386,13 @@ export const CreateRoutineModal: React.FC<CreateRoutineModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-medium text-sm transition-colors cursor-pointer"
+              className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-medium text-xs transition-colors cursor-pointer"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm shadow-sm hover:shadow transition-all cursor-pointer"
+              className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs hover:shadow transition-all cursor-pointer"
             >
               {routineToEdit ? 'Salvar Alterações' : 'Criar Rotina'}
             </button>

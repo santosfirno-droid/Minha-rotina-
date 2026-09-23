@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import confetti from 'canvas-confetti';
 import {
   Routine,
@@ -10,28 +10,29 @@ import {
   ActiveTimer,
 } from '../types';
 import { useAuth } from './AuthContext';
-import {
-  getRoutines,
-  saveRoutines,
-  createRoutine as apiCreateRoutine,
-  updateRoutine as apiUpdateRoutine,
-  deleteRoutine as apiDeleteRoutine,
-  duplicateRoutine as apiDuplicateRoutine,
-  getTasks,
-  saveTasks,
-  createTask as apiCreateTask,
-  updateTask as apiUpdateTask,
-  deleteTask as apiDeleteTask,
-  getTaskCompletions,
-  getHabitCompletions,
-  toggleTaskCompletion,
-  getFocusSessions,
-  recordFocusSession,
-  getTodayDateString,
-  getDayProgress,
-  calculateHabitStreak,
-} from '../services/storage';
 import { soundService } from '../services/sound';
+import {
+  testSupabaseConnection,
+  SupabaseConnectionResult,
+} from '../services/supabase';
+import {
+  getTodayDateString,
+  fetchDbRoutines,
+  createDbRoutine,
+  updateDbRoutine,
+  deleteDbRoutine,
+  reorderDbRoutines,
+  fetchDbTasks,
+  createDbTask,
+  updateDbTask,
+  deleteDbTask,
+  reorderDbTasks,
+  fetchDbCompletions,
+  toggleDbTaskCompletion,
+  fetchDbFocusSessions,
+  recordDbFocusSession,
+  insertStarterRoutinesForUser,
+} from '../services/supabaseDb';
 
 interface RoutineContextType {
   routines: Routine[];
@@ -43,21 +44,29 @@ interface RoutineContextType {
   selectedDate: string;
   setSelectedDate: (date: string) => void;
   dayProgress: DayProgress;
-  refreshData: () => void;
+  isLoadingData: boolean;
+  refreshData: () => Promise<void>;
+  // Supabase cloud sync
+  supabaseStatus: SupabaseConnectionResult | null;
+  isSyncing: boolean;
+  lastSyncedAt: string | null;
+  checkSupabase: () => Promise<void>;
+  syncNow: (direction?: 'push' | 'pull') => Promise<{ success: boolean; message: string }>;
   // Routine actions
-  addRoutine: (data: Omit<Routine, 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'order'>) => Routine;
-  editRoutine: (routine: Routine) => void;
-  removeRoutine: (routineId: string) => void;
-  cloneRoutine: (routineId: string) => void;
-  toggleRoutineActive: (routineId: string) => void;
+  addRoutine: (data: Omit<Routine, 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'order'>) => Promise<Routine>;
+  editRoutine: (routine: Routine) => Promise<void>;
+  removeRoutine: (routineId: string) => Promise<void>;
+  cloneRoutine: (routineId: string) => Promise<void>;
+  toggleRoutineActive: (routineId: string) => Promise<void>;
   // Task actions
-  addTask: (data: Omit<RoutineTask, 'id' | 'userId' | 'createdAt' | 'order'>) => RoutineTask;
-  editTask: (task: RoutineTask) => void;
-  removeTask: (taskId: string) => void;
-  reorderTasks: (routineId: string, newOrderedTasks: RoutineTask[]) => void;
+  addTask: (data: Omit<RoutineTask, 'id' | 'userId' | 'createdAt' | 'order'>) => Promise<RoutineTask>;
+  editTask: (task: RoutineTask) => Promise<void>;
+  removeTask: (taskId: string) => Promise<void>;
+  reorderTasks: (routineId: string, newOrderedTasks: RoutineTask[]) => Promise<void>;
   // Completion
-  toggleTask: (taskId: string, routineId: string, isHabit?: boolean, targetDate?: string) => void;
+  toggleTask: (taskId: string, routineId: string, isHabit?: boolean, targetDate?: string) => Promise<void>;
   isTaskCompleted: (taskId: string, targetDate?: string) => boolean;
+  getDayProgressForDate: (targetDate: string) => DayProgress;
   // Habit helper
   getHabitStats: (taskId: string) => { currentStreak: number; bestStreak: number; totalCompleted: number; historyDates: string[] };
   // Timer
@@ -65,7 +74,7 @@ interface RoutineContextType {
   startTimer: (task: RoutineTask, routine: Routine, mode?: 'stopwatch' | 'countdown') => void;
   pauseTimer: () => void;
   resumeTimer: () => void;
-  stopTimer: (completeTask?: boolean) => void;
+  stopTimer: (completeTask?: boolean) => Promise<void>;
   minimizeTimer: () => void;
   showTimerModal: boolean;
   setShowTimerModal: (show: boolean) => void;
@@ -75,148 +84,386 @@ const RoutineContext = createContext<RoutineContextType | undefined>(undefined);
 
 export const RoutineProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, settings } = useAuth();
-  const todayDate = getTodayDateString();
+  const todayDate = useMemo(() => getTodayDateString(), []);
   const [selectedDate, setSelectedDate] = useState<string>(todayDate);
 
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [tasks, setTasks] = useState<RoutineTask[]>([]);
   const [taskCompletions, setTaskCompletions] = useState<TaskCompletion[]>([]);
-  const [habitCompletions, setHabitCompletions] = useState<HabitCompletion[]>([]);
   const [focusSessions, setFocusSessions] = useState<FocusSession[]>([]);
+  const [isLoadingData, setIsLoadingData] = useState<boolean>(true);
 
   // Timer state
   const [activeTimer, setActiveTimer] = useState<ActiveTimer | null>(null);
   const [showTimerModal, setShowTimerModal] = useState<boolean>(false);
+
+  // Supabase state
+  const [supabaseStatus, setSupabaseStatus] = useState<SupabaseConnectionResult | null>(null);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
 
   // Sound service config
   useEffect(() => {
     soundService.setEnabled(settings.soundEnabled);
   }, [settings.soundEnabled]);
 
-  const refreshData = useCallback(() => {
+  // Check Supabase connection
+  const checkSupabase = useCallback(async () => {
+    try {
+      const res = await testSupabaseConnection();
+      setSupabaseStatus(res);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    checkSupabase();
+  }, [checkSupabase]);
+
+  // Load all user data from Supabase
+  const loadUserData = useCallback(async () => {
     if (!user) {
       setRoutines([]);
       setTasks([]);
       setTaskCompletions([]);
-      setHabitCompletions([]);
       setFocusSessions([]);
+      setIsLoadingData(false);
       return;
     }
-    const r = getRoutines(user.id);
-    const t = getTasks(user.id);
-    const tc = getTaskCompletions(user.id);
-    const hc = getHabitCompletions(user.id);
-    const fs = getFocusSessions(user.id);
 
-    setRoutines(r);
-    setTasks(t);
-    setTaskCompletions(tc);
-    setHabitCompletions(hc);
-    setFocusSessions(fs);
+    setIsLoadingData(true);
+    try {
+      const [fetchedRoutines, fetchedTasks, fetchedCompletions, fetchedSessions] =
+        await Promise.all([
+          fetchDbRoutines(user.id),
+          fetchDbTasks(user.id),
+          fetchDbCompletions(user.id),
+          fetchDbFocusSessions(user.id),
+        ]);
+
+      // If user has 0 routines, automatically seed starter routines in Supabase
+      if (fetchedRoutines.length === 0) {
+        try {
+          await insertStarterRoutinesForUser(user.id, 'tudo');
+          const [seededRoutines, seededTasks] = await Promise.all([
+            fetchDbRoutines(user.id),
+            fetchDbTasks(user.id),
+          ]);
+          setRoutines(seededRoutines);
+          setTasks(seededTasks);
+        } catch (seedErr) {
+          console.warn('Error seeding starter routines:', seedErr);
+          setRoutines(fetchedRoutines);
+          setTasks(fetchedTasks);
+        }
+      } else {
+        setRoutines(fetchedRoutines);
+        setTasks(fetchedTasks);
+      }
+
+      setTaskCompletions(fetchedCompletions);
+      setFocusSessions(fetchedSessions);
+
+      const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      setLastSyncedAt(nowStr);
+    } catch (err) {
+      console.error('Error loading data from Supabase:', err);
+    } finally {
+      setIsLoadingData(false);
+    }
   }, [user]);
 
   useEffect(() => {
-    refreshData();
-  }, [refreshData]);
+    loadUserData();
+  }, [loadUserData]);
 
-  // Current day progress
-  const dayProgress = user ? getDayProgress(user.id, selectedDate) : {
-    date: selectedDate,
-    totalTasks: 0,
-    completedTasks: 0,
-    percent: 0,
-    focusedSeconds: 0,
+  // Restore Active Timer from LocalStorage if page was refreshed
+  useEffect(() => {
+    if (!user) {
+      setActiveTimer(null);
+      return;
+    }
+
+    try {
+      const savedTimerRaw = localStorage.getItem(`minha_rotina_timer_${user.id}`);
+      if (savedTimerRaw) {
+        const saved = JSON.parse(savedTimerRaw);
+        if (saved && saved.taskId) {
+          const now = Date.now();
+          const elapsedDelta = saved.isRunning && saved.savedAt
+            ? Math.floor((now - saved.savedAt) / 1000)
+            : 0;
+
+          const updatedElapsed = saved.secondsElapsed + elapsedDelta;
+          let updatedLeft = saved.secondsLeft;
+          if (saved.mode === 'countdown') {
+            updatedLeft = Math.max(0, saved.secondsLeft - elapsedDelta);
+          }
+
+          setActiveTimer({
+            ...saved,
+            secondsElapsed: updatedElapsed,
+            secondsLeft: updatedLeft,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to restore active timer:', e);
+    }
+  }, [user]);
+
+  // Persist Active Timer on changes
+  useEffect(() => {
+    if (!user) return;
+    if (activeTimer) {
+      localStorage.setItem(
+        `minha_rotina_timer_${user.id}`,
+        JSON.stringify({ ...activeTimer, savedAt: Date.now() })
+      );
+    } else {
+      localStorage.removeItem(`minha_rotina_timer_${user.id}`);
+    }
+  }, [activeTimer, user]);
+
+  // Manual sync function
+  const syncNow = async (_direction: 'push' | 'pull' = 'pull') => {
+    if (!user) return { success: false, message: 'Usuário não conectado.' };
+    setIsSyncing(true);
+    try {
+      await loadUserData();
+      const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      setLastSyncedAt(nowStr);
+      return { success: true, message: 'Dados sincronizados com o Supabase com sucesso!' };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Erro durante sincronização.' };
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
+  // Calculate day progress for any specific date
+  const getDayProgressForDate = useCallback(
+    (targetDate: string): DayProgress => {
+      const d = new Date(targetDate + 'T12:00:00');
+      const dayOfWeek = d.getDay();
+
+      const activeRoutines = routines.filter(
+        (r) => r.isActive && r.daysOfWeek.includes(dayOfWeek)
+      );
+      const activeRoutineIds = new Set(activeRoutines.map((r) => r.id));
+
+      const dailyTasks = tasks.filter((t) => activeRoutineIds.has(t.routineId));
+      const dailyCompletions = taskCompletions.filter(
+        (c) => c.date === targetDate && activeRoutineIds.has(c.routineId)
+      );
+
+      const totalTasks = dailyTasks.length;
+      const completedTasks = dailyCompletions.length;
+      const percent = totalTasks === 0 ? 0 : Math.round((completedTasks / totalTasks) * 100);
+
+      const dailyFocus = focusSessions.filter((s) => s.date === targetDate);
+      const focusedSeconds = dailyFocus.reduce((acc, s) => acc + s.durationSeconds, 0);
+
+      return {
+        date: targetDate,
+        totalTasks,
+        completedTasks,
+        percent,
+        focusedSeconds,
+      };
+    },
+    [routines, tasks, taskCompletions, focusSessions]
+  );
+
+  const dayProgress = useMemo(() => {
+    return getDayProgressForDate(selectedDate);
+  }, [getDayProgressForDate, selectedDate]);
+
   // Routine Handlers
-  const addRoutine = (data: Omit<Routine, 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'order'>) => {
+  const addRoutine = async (
+    data: Omit<Routine, 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'order'>
+  ): Promise<Routine> => {
     if (!user) throw new Error('Usuário não autenticado');
-    const created = apiCreateRoutine(user.id, data);
-    refreshData();
+    const created = await createDbRoutine(user.id, data, routines.length);
+    setRoutines((prev) => [...prev, created]);
     return created;
   };
 
-  const editRoutine = (routine: Routine) => {
+  const editRoutine = async (routine: Routine): Promise<void> => {
     if (!user) return;
-    apiUpdateRoutine(user.id, routine);
-    refreshData();
+    setRoutines((prev) => prev.map((r) => (r.id === routine.id ? routine : r)));
+    await updateDbRoutine(user.id, routine);
   };
 
-  const removeRoutine = (routineId: string) => {
+  const removeRoutine = async (routineId: string): Promise<void> => {
     if (!user) return;
-    apiDeleteRoutine(user.id, routineId);
-    refreshData();
+    setRoutines((prev) => prev.filter((r) => r.id !== routineId));
+    setTasks((prev) => prev.filter((t) => t.routineId !== routineId));
+    setTaskCompletions((prev) => prev.filter((c) => c.routineId !== routineId));
+    await deleteDbRoutine(user.id, routineId);
   };
 
-  const cloneRoutine = (routineId: string) => {
+  const cloneRoutine = async (routineId: string): Promise<void> => {
     if (!user) return;
-    apiDuplicateRoutine(user.id, routineId);
-    refreshData();
+    const original = routines.find((r) => r.id === routineId);
+    if (!original) return;
+
+    const cloned = await createDbRoutine(
+      user.id,
+      {
+        name: `${original.name} (Cópia)`,
+        icon: original.icon,
+        description: original.description,
+        startTime: original.startTime,
+        daysOfWeek: [...original.daysOfWeek],
+        isActive: original.isActive,
+      },
+      routines.length
+    );
+
+    setRoutines((prev) => [...prev, cloned]);
+
+    // Clone all tasks in that routine
+    const routineTasks = tasks.filter((t) => t.routineId === routineId);
+    for (let i = 0; i < routineTasks.length; i++) {
+      const origTask = routineTasks[i];
+      const clonedTask = await createDbTask(
+        user.id,
+        {
+          routineId: cloned.id,
+          name: origTask.name,
+          time: origTask.time,
+          durationMinutes: origTask.durationMinutes,
+          isHabit: origTask.isHabit,
+          notes: origTask.notes,
+        },
+        i
+      );
+      setTasks((prev) => [...prev, clonedTask]);
+    }
   };
 
-  const toggleRoutineActive = (routineId: string) => {
+  const toggleRoutineActive = async (routineId: string): Promise<void> => {
     if (!user) return;
     const routine = routines.find((r) => r.id === routineId);
     if (!routine) return;
-    editRoutine({ ...routine, isActive: !routine.isActive });
+    const updated = { ...routine, isActive: !routine.isActive };
+    await editRoutine(updated);
   };
 
   // Task Handlers
-  const addTask = (data: Omit<RoutineTask, 'id' | 'userId' | 'createdAt' | 'order'>) => {
+  const addTask = async (
+    data: Omit<RoutineTask, 'id' | 'userId' | 'createdAt' | 'order'>
+  ): Promise<RoutineTask> => {
     if (!user) throw new Error('Usuário não autenticado');
-    const created = apiCreateTask(user.id, data);
-    refreshData();
+    const routineTasks = tasks.filter((t) => t.routineId === data.routineId);
+    const created = await createDbTask(user.id, data, routineTasks.length);
+    setTasks((prev) => [...prev, created]);
     return created;
   };
 
-  const editTask = (task: RoutineTask) => {
+  const editTask = async (task: RoutineTask): Promise<void> => {
     if (!user) return;
-    apiUpdateTask(user.id, task);
-    refreshData();
+    setTasks((prev) => prev.map((t) => (t.id === task.id ? task : t)));
+    await updateDbTask(user.id, task);
   };
 
-  const removeTask = (taskId: string) => {
+  const removeTask = async (taskId: string): Promise<void> => {
     if (!user) return;
-    apiDeleteTask(user.id, taskId);
-    refreshData();
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    setTaskCompletions((prev) => prev.filter((c) => c.taskId !== taskId));
+    await deleteDbTask(user.id, taskId);
   };
 
-  const reorderTasks = (routineId: string, newOrderedTasks: RoutineTask[]) => {
+  const reorderTasks = async (routineId: string, newOrderedTasks: RoutineTask[]): Promise<void> => {
     if (!user) return;
-    const currentTasks = getTasks(user.id);
-    const otherTasks = currentTasks.filter((t) => t.routineId !== routineId);
-
-    const reorderedWithOrder = newOrderedTasks.map((t, idx) => ({
-      ...t,
-      order: idx,
-    }));
-
-    saveTasks(user.id, [...otherTasks, ...reorderedWithOrder]);
-    refreshData();
+    const otherTasks = tasks.filter((t) => t.routineId !== routineId);
+    const reordered = newOrderedTasks.map((t, idx) => ({ ...t, order: idx }));
+    setTasks([...otherTasks, ...reordered]);
+    await reorderDbTasks(user.id, reordered);
   };
 
   // Completion check & toggle
-  const isTaskCompleted = (taskId: string, targetDate: string = selectedDate) => {
-    return taskCompletions.some((c) => c.taskId === taskId && c.date === targetDate);
-  };
+  const isTaskCompleted = useCallback(
+    (taskId: string, targetDate: string = selectedDate) => {
+      return taskCompletions.some((c) => c.taskId === taskId && c.date === targetDate);
+    },
+    [taskCompletions, selectedDate]
+  );
 
-  const toggleTask = (
+  const toggleTask = async (
     taskId: string,
     routineId: string,
-    isHabit: boolean = false,
+    _isHabit: boolean = false,
     targetDate: string = selectedDate
-  ) => {
+  ): Promise<void> => {
     if (!user) return;
-    const prevProgress = getDayProgress(user.id, targetDate);
-    const result = toggleTaskCompletion(user.id, taskId, routineId, targetDate, isHabit);
-    refreshData();
 
-    if (result.completed) {
+    const prevProgress = getDayProgressForDate(targetDate);
+    const alreadyCompleted = isTaskCompleted(taskId, targetDate);
+
+    // Optimistic state update
+    if (alreadyCompleted) {
+      setTaskCompletions((prev) =>
+        prev.filter((c) => !(c.taskId === taskId && c.date === targetDate))
+      );
+    } else {
+      const tempCompletion: TaskCompletion = {
+        id: 'comp_' + Date.now(),
+        taskId,
+        routineId,
+        userId: user.id,
+        date: targetDate,
+        completedAt: new Date().toISOString(),
+        focusedSeconds: 0,
+      };
+      setTaskCompletions((prev) => [...prev, tempCompletion]);
+    }
+
+    // Persist to Supabase
+    try {
+      const res = await toggleDbTaskCompletion(
+        user.id,
+        taskId,
+        routineId,
+        targetDate,
+        alreadyCompleted
+      );
+
+      if (!alreadyCompleted && res.completion) {
+        // Replace temp id with real id if generated
+        setTaskCompletions((prev) =>
+          prev.map((c) =>
+            c.taskId === taskId && c.date === targetDate ? res.completion! : c
+          )
+        );
+      }
+    } catch (err) {
+      console.error('Error toggling completion in Supabase:', err);
+    }
+
+    if (!alreadyCompleted) {
       soundService.playTaskComplete();
 
-      // Check if this action completed the day
-      const newProgress = getDayProgress(user.id, targetDate);
-      if (newProgress.percent === 100 && prevProgress.percent < 100) {
+      // Check if this action completed 100% of the day
+      const activeRoutines = routines.filter((r) => {
+        const d = new Date(targetDate + 'T12:00:00');
+        return r.isActive && r.daysOfWeek.includes(d.getDay());
+      });
+      const activeRoutineIds = new Set(activeRoutines.map((r) => r.id));
+      const dailyTasks = tasks.filter((t) => activeRoutineIds.has(t.routineId));
+      const totalCount = dailyTasks.length;
+
+      // Previous completed count + 1
+      const newCompletedCount =
+        taskCompletions.filter(
+          (c) => c.date === targetDate && activeRoutineIds.has(c.routineId)
+        ).length + 1;
+
+      const newPercent = totalCount === 0 ? 0 : Math.round((newCompletedCount / totalCount) * 100);
+
+      if (newPercent === 100 && prevProgress.percent < 100) {
         soundService.playCelebration();
         if (settings.celebrationEnabled) {
           try {
@@ -234,16 +481,78 @@ export const RoutineProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
-  const getHabitStats = (taskId: string) => {
-    if (!user) return { currentStreak: 0, bestStreak: 0, totalCompleted: 0, historyDates: [] };
-    const task = tasks.find((t) => t.id === taskId);
-    const routine = routines.find((r) => r.id === task?.routineId);
-    return calculateHabitStreak(user.id, taskId, routine?.daysOfWeek);
-  };
+  // Habit Streak calculation directly from real Supabase task_completions
+  const getHabitStats = useCallback(
+    (taskId: string) => {
+      const relevantCompletions = taskCompletions.filter((c) => c.taskId === taskId);
+      const uniqueDates = Array.from(new Set(relevantCompletions.map((c) => c.date))).sort();
+
+      const totalCompleted = uniqueDates.length;
+      if (totalCompleted === 0) {
+        return { currentStreak: 0, bestStreak: 0, totalCompleted: 0, historyDates: [] };
+      }
+
+      const task = tasks.find((t) => t.id === taskId);
+      const routine = routines.find((r) => r.id === task?.routineId);
+      const targetDaysOfWeek = routine?.daysOfWeek;
+
+      let currentStreak = 0;
+      let checkDate = new Date();
+      const todayStr = getTodayDateString(checkDate);
+
+      const todayCompleted = uniqueDates.includes(todayStr);
+      if (!todayCompleted) {
+        checkDate.setDate(checkDate.getDate() - 1);
+      }
+
+      while (true) {
+        const dateStr = getTodayDateString(checkDate);
+        const dayOfWeek = checkDate.getDay();
+        const isApplicable = !targetDaysOfWeek || targetDaysOfWeek.includes(dayOfWeek);
+
+        if (uniqueDates.includes(dateStr)) {
+          currentStreak++;
+          checkDate.setDate(checkDate.getDate() - 1);
+        } else if (!isApplicable) {
+          checkDate.setDate(checkDate.getDate() - 1);
+        } else {
+          break;
+        }
+      }
+
+      // Calculate best streak
+      let bestStreak = currentStreak;
+      let tempStreak = 0;
+      for (let i = 0; i < uniqueDates.length; i++) {
+        if (i === 0) {
+          tempStreak = 1;
+        } else {
+          const prev = new Date(uniqueDates[i - 1] + 'T00:00:00');
+          const curr = new Date(uniqueDates[i] + 'T00:00:00');
+          const diffDays = Math.round((curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24));
+          if (diffDays === 1) {
+            tempStreak++;
+          } else {
+            tempStreak = 1;
+          }
+        }
+        if (tempStreak > bestStreak) {
+          bestStreak = tempStreak;
+        }
+      }
+
+      return {
+        currentStreak,
+        bestStreak,
+        totalCompleted,
+        historyDates: uniqueDates,
+      };
+    },
+    [taskCompletions, tasks, routines]
+  );
 
   // ---------------- TIMER IMPLEMENTATION ---------------- //
 
-  // Interval ticker
   useEffect(() => {
     if (!activeTimer || !activeTimer.isRunning) return;
 
@@ -257,7 +566,6 @@ export const RoutineProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const newLeft = Math.max(0, prev.secondsLeft - 1);
           if (newLeft === 0) {
             soundService.playTimerDone();
-            // Automatically stop timer when finished
             return {
               ...prev,
               secondsElapsed: newElapsed,
@@ -270,32 +578,31 @@ export const RoutineProvider: React.FC<{ children: React.ReactNode }> = ({ child
             secondsElapsed: newElapsed,
             secondsLeft: newLeft,
           };
-        } else {
-          return {
-            ...prev,
-            secondsElapsed: newElapsed,
-          };
         }
+
+        return {
+          ...prev,
+          secondsElapsed: newElapsed,
+        };
       });
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [activeTimer]);
+  }, [activeTimer?.isRunning]);
 
   const startTimer = (
     task: RoutineTask,
     routine: Routine,
-    preferredMode?: 'stopwatch' | 'countdown'
+    mode: 'stopwatch' | 'countdown' = 'countdown'
   ) => {
-    const hasDuration = !!task.durationMinutes && task.durationMinutes > 0;
-    const mode = preferredMode || (hasDuration ? 'countdown' : 'stopwatch');
-    const targetSeconds = (task.durationMinutes || 25) * 60;
+    const duration = task.durationMinutes || 25;
+    const targetSeconds = duration * 60;
 
     setActiveTimer({
       taskId: task.id,
       taskName: task.name,
       routineId: routine.id,
-      durationMinutes: task.durationMinutes,
+      durationMinutes: duration,
       mode,
       targetSeconds,
       secondsLeft: targetSeconds,
@@ -303,53 +610,66 @@ export const RoutineProvider: React.FC<{ children: React.ReactNode }> = ({ child
       isRunning: true,
       startedAt: Date.now(),
     });
-
     setShowTimerModal(true);
+    soundService.playTimerStart();
   };
 
   const pauseTimer = () => {
+    if (!activeTimer) return;
     setActiveTimer((prev) => (prev ? { ...prev, isRunning: false } : null));
   };
 
   const resumeTimer = () => {
+    if (!activeTimer) return;
     setActiveTimer((prev) => (prev ? { ...prev, isRunning: true } : null));
+    soundService.playTimerStart();
+  };
+
+  const stopTimer = async (completeTask: boolean = true): Promise<void> => {
+    if (!activeTimer || !user) return;
+    const elapsed = activeTimer.secondsElapsed;
+
+    // Record focus session to Supabase if ran for more than 5 seconds
+    if (elapsed >= 5) {
+      try {
+        const savedSession = await recordDbFocusSession(user.id, {
+          taskId: activeTimer.taskId,
+          taskName: activeTimer.taskName,
+          routineId: activeTimer.routineId,
+          durationSeconds: elapsed,
+          date: todayDate,
+        });
+        setFocusSessions((prev) => [savedSession, ...prev]);
+      } catch (err) {
+        console.error('Error saving focus session:', err);
+      }
+    }
+
+    // Complete task if requested
+    if (completeTask && !isTaskCompleted(activeTimer.taskId, todayDate)) {
+      await toggleTask(activeTimer.taskId, activeTimer.routineId, false, todayDate);
+    }
+
+    setActiveTimer(null);
+    setShowTimerModal(false);
+    localStorage.removeItem(`minha_rotina_timer_${user.id}`);
   };
 
   const minimizeTimer = () => {
     setShowTimerModal(false);
   };
 
-  const stopTimer = (completeTask: boolean = true) => {
-    if (!activeTimer || !user) {
-      setActiveTimer(null);
-      setShowTimerModal(false);
-      return;
-    }
-
-    const elapsed = activeTimer.secondsElapsed;
-    if (elapsed > 10) {
-      // Record session
-      recordFocusSession({
-        userId: user.id,
-        taskId: activeTimer.taskId,
-        taskName: activeTimer.taskName,
-        routineId: activeTimer.routineId,
-        durationSeconds: elapsed,
-        date: todayDate,
-      });
-    }
-
-    if (completeTask) {
-      const task = tasks.find((t) => t.id === activeTimer.taskId);
-      if (task && !isTaskCompleted(task.id, todayDate)) {
-        toggleTask(task.id, activeTimer.routineId, task.isHabit, todayDate);
-      }
-    }
-
-    setActiveTimer(null);
-    setShowTimerModal(false);
-    refreshData();
-  };
+  // Convert completions to habitCompletions view compatibility
+  const habitCompletions: HabitCompletion[] = useMemo(() => {
+    return taskCompletions.map((c) => ({
+      id: c.id,
+      taskId: c.taskId,
+      routineId: c.routineId,
+      userId: c.userId,
+      date: c.date,
+      completedAt: c.completedAt,
+    }));
+  }, [taskCompletions]);
 
   return (
     <RoutineContext.Provider
@@ -363,7 +683,13 @@ export const RoutineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         selectedDate,
         setSelectedDate,
         dayProgress,
-        refreshData,
+        isLoadingData,
+        refreshData: loadUserData,
+        supabaseStatus,
+        isSyncing,
+        lastSyncedAt,
+        checkSupabase,
+        syncNow,
         addRoutine,
         editRoutine,
         removeRoutine,
@@ -375,6 +701,7 @@ export const RoutineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         reorderTasks,
         toggleTask,
         isTaskCompleted,
+        getDayProgressForDate,
         getHabitStats,
         activeTimer,
         startTimer,

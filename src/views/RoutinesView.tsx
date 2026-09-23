@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useRoutine } from '../context/RoutineContext';
 import { Routine, RoutineTask } from '../types';
 import { WEEKDAYS_SHORT } from '../utils/date';
+import { RoutineIcon } from '../components/RoutineIcon';
 import {
   Plus,
   MoreVertical,
@@ -14,8 +15,8 @@ import {
   Clock,
   ArrowUp,
   ArrowDown,
-  CheckCircle,
   Flame,
+  Layers,
 } from 'lucide-react';
 
 interface RoutinesViewProps {
@@ -67,12 +68,12 @@ export const RoutinesView: React.FC<RoutinesViewProps> = ({
             Minhas Rotinas
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Gerencie seus períodos, ative ou reorganize cada bloco do seu dia
+            Gerencie seus blocos, ative ou reorganize cada momento do seu dia
           </p>
         </div>
         <button
           onClick={() => onOpenCreateRoutine()}
-          className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-xs py-2.5 px-4 rounded-xl shadow-sm transition-all cursor-pointer"
+          className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-xs py-2.5 px-4 rounded-xl shadow-xs transition-all cursor-pointer"
         >
           <Plus className="w-4 h-4" />
           <span>Criar Rotina</span>
@@ -82,7 +83,9 @@ export const RoutinesView: React.FC<RoutinesViewProps> = ({
       {/* Routines Grid */}
       {routines.length === 0 ? (
         <div className="text-center py-16 bg-white rounded-3xl border border-dashed border-slate-200">
-          <span className="text-4xl mb-3 block">📋</span>
+          <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto mb-3">
+            <Layers className="w-6 h-6" />
+          </div>
           <h3 className="text-base font-bold text-slate-800">Nenhuma rotina cadastrada</h3>
           <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1 mb-4">
             Crie rotinas para guiar seu dia a dia e acompanhar sua evolução.
@@ -99,8 +102,9 @@ export const RoutinesView: React.FC<RoutinesViewProps> = ({
         <div className="space-y-4">
           {routines.map((routine) => {
             const routineTasks = tasks.filter((t) => t.routineId === routine.id);
-            const completedCount = routineTasks.filter((t) => isTaskCompleted(t.id, selectedDate)).length;
-            const completionPercent = routineTasks.length === 0 ? 0 : Math.round((completedCount / routineTasks.length) * 100);
+            const completedCount = routineTasks.filter((t) =>
+              isTaskCompleted(t.id, selectedDate)
+            ).length;
             const isExpanded = expandedRoutineId === routine.id;
 
             return (
@@ -117,12 +121,12 @@ export const RoutinesView: React.FC<RoutinesViewProps> = ({
                   <div className="flex items-start justify-between gap-4">
                     {/* Icon & Title */}
                     <div className="flex items-start gap-3.5 flex-1 min-w-0">
-                      <span className="text-3xl p-2.5 rounded-2xl bg-slate-100 flex items-center justify-center shrink-0">
-                        {routine.icon}
+                      <span className="w-11 h-11 rounded-2xl bg-slate-50 border border-slate-200 text-blue-600 flex items-center justify-center shrink-0">
+                        <RoutineIcon icon={routine.icon} className="w-6 h-6 text-blue-600" />
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <h2 className="text-base font-bold text-slate-900 leading-snug truncate">
+                          <h2 className="text-base font-bold text-slate-900 leading-snug truncate uppercase">
                             {routine.name}
                           </h2>
                           {!routine.isActive && (
@@ -218,7 +222,11 @@ export const RoutinesView: React.FC<RoutinesViewProps> = ({
                             <button
                               onClick={() => {
                                 setActiveMenuId(null);
-                                if (confirm(`Deseja excluir a rotina "${routine.name}" e todas as suas tarefas?`)) {
+                                if (
+                                  confirm(
+                                    `Deseja excluir a rotina "${routine.name}" e todas as suas tarefas?`
+                                  )
+                                ) {
                                   removeRoutine(routine.id);
                                 }
                               }}
@@ -236,12 +244,15 @@ export const RoutinesView: React.FC<RoutinesViewProps> = ({
                   <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-slate-800">
-                        {routineTasks.length} {routineTasks.length === 1 ? 'tarefa' : 'tarefas'}
+                        {routineTasks.length}{' '}
+                        {routineTasks.length === 1 ? 'tarefa' : 'tarefas'}
                       </span>
                       {routine.startTime && (
                         <>
                           <span>•</span>
-                          <span className="font-mono text-slate-500">Início {routine.startTime}</span>
+                          <span className="font-mono text-slate-500">
+                            Início {routine.startTime}
+                          </span>
                         </>
                       )}
                     </div>
@@ -250,8 +261,14 @@ export const RoutinesView: React.FC<RoutinesViewProps> = ({
                       onClick={() => toggleExpand(routine.id)}
                       className="flex items-center gap-1 font-semibold text-blue-600 hover:text-blue-700 cursor-pointer"
                     >
-                      <span>{isExpanded ? 'Ocultar tarefas' : 'Ver e reordenar tarefas'}</span>
-                      {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      <span>
+                        {isExpanded ? 'Ocultar tarefas' : 'Ver e reordenar tarefas'}
+                      </span>
+                      {isExpanded ? (
+                        <ChevronUp className="w-4 h-4" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4" />
+                      )}
                     </button>
                   </div>
                 </div>
@@ -260,7 +277,9 @@ export const RoutinesView: React.FC<RoutinesViewProps> = ({
                 {isExpanded && (
                   <div className="px-5 pb-5 pt-1 border-t border-slate-100 bg-slate-50/50 rounded-b-3xl space-y-2">
                     <div className="flex items-center justify-between py-2">
-                      <span className="text-xs font-bold text-slate-700">Tarefas da rotina</span>
+                      <span className="text-xs font-bold text-slate-700">
+                        Tarefas da rotina
+                      </span>
                       <button
                         onClick={() => onOpenTaskModal(undefined, routine.id)}
                         className="text-xs text-blue-600 hover:underline font-semibold flex items-center gap-1 cursor-pointer"
@@ -284,13 +303,16 @@ export const RoutinesView: React.FC<RoutinesViewProps> = ({
                               {index + 1}.
                             </span>
                             <div className="min-w-0 flex-1">
-                              <p className="font-semibold text-slate-800 truncate">{task.name}</p>
+                              <p className="font-semibold text-slate-800 truncate">
+                                {task.name}
+                              </p>
                               <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
                                 {task.time && <span>{task.time}</span>}
                                 {task.durationMinutes && <span>{task.durationMinutes} min</span>}
                                 {task.isHabit && (
                                   <span className="text-amber-600 font-bold flex items-center gap-0.5">
-                                    <Flame className="w-3 h-3 fill-amber-500 text-amber-500" /> Hábito
+                                    <Flame className="w-3 h-3 fill-amber-500 text-amber-500" />{' '}
+                                    Hábito
                                   </span>
                                 )}
                               </div>

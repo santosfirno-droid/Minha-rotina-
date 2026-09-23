@@ -1,4 +1,4 @@
-// Portuguese date helpers
+// Portuguese date helpers & formatting utilities
 
 export const WEEKDAYS_SHORT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 export const WEEKDAYS_FULL = [
@@ -34,7 +34,7 @@ export function formatGreeting(name: string): string {
   } else if (hour >= 18 || hour < 5) {
     greet = 'Boa noite';
   }
-  return `${greet}, ${name}! 👋`;
+  return `${greet}, ${name}`;
 }
 
 export function formatCurrentDate(dateStr?: string): string {
@@ -78,21 +78,72 @@ export function formatDurationHuman(totalSeconds: number): string {
   }
 }
 
+/**
+ * Exact progress messages per user specification:
+ * 0%: “Vamos começar?”
+ * 25%: “Bom começo!”
+ * 50%: “Você já fez metade!”
+ * 75%: “Tá quase!”
+ * 100%: “Dia concluído!”
+ */
 export function getMotivationalMessage(percent: number): { message: string; badge: string; color: string } {
-  if (percent === 0) {
+  if (percent <= 0) {
     return { message: 'Vamos começar?', badge: '0%', color: 'text-slate-500' };
   } else if (percent < 50) {
-    return { message: 'Bom começo! 🚀', badge: `${percent}%`, color: 'text-blue-600' };
+    return { message: 'Bom começo!', badge: `${percent}%`, color: 'text-blue-600' };
   } else if (percent < 75) {
     return { message: 'Você já fez metade!', badge: `${percent}%`, color: 'text-blue-600' };
   } else if (percent < 100) {
-    return { message: 'Tá quase! 🔥', badge: `${percent}%`, color: 'text-amber-600' };
+    return { message: 'Tá quase!', badge: `${percent}%`, color: 'text-blue-700' };
   } else {
-    return { message: 'Dia concluído! 🎉', badge: '100%', color: 'text-emerald-600' };
+    return { message: 'Dia concluído!', badge: '100%', color: 'text-emerald-600' };
   }
 }
 
-export function getWeekDays(referenceDateStr: string, startOfWeek: 0 | 1 = 1): { dateStr: string; dayShort: string; dayNum: number; isToday: boolean }[] {
+export function parseTimeToMinutes(timeStr?: string): number | null {
+  if (!timeStr) return null;
+  const parts = timeStr.split(':');
+  if (parts.length < 2) return null;
+  const hours = parseInt(parts[0], 10);
+  const minutes = parseInt(parts[1], 10);
+  if (isNaN(hours) || isNaN(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+export function getCurrentMinutesToday(): number {
+  const now = new Date();
+  return now.getHours() * 60 + now.getMinutes();
+}
+
+export function formatMinutesToTime(minutesTotal: number): string {
+  const normalized = ((minutesTotal % 1440) + 1440) % 1440;
+  const hours = Math.floor(normalized / 60);
+  const minutes = normalized % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+export function formatTimeRange(startTime?: string, durationMinutes?: number): string {
+  if (!startTime) return '';
+  if (!durationMinutes || durationMinutes <= 0) return startTime;
+  const startMin = parseTimeToMinutes(startTime);
+  if (startMin === null) return startTime;
+  const endMin = startMin + durationMinutes;
+  return `${startTime} — ${formatMinutesToTime(endMin)}`;
+}
+
+export function isTaskOverdue(timeStr?: string, durationMinutes?: number): boolean {
+  if (!timeStr) return false;
+  const startMin = parseTimeToMinutes(timeStr);
+  if (startMin === null) return false;
+  const currentMin = getCurrentMinutesToday();
+  const endMin = durationMinutes ? startMin + durationMinutes : startMin + 15;
+  return currentMin > endMin;
+}
+
+export function getWeekDays(
+  referenceDateStr: string,
+  startOfWeek: 0 | 1 = 1
+): { dateStr: string; dayShort: string; dayNum: number; isToday: boolean }[] {
   const ref = new Date(referenceDateStr + 'T12:00:00');
   const day = ref.getDay(); // 0 is Sun
 

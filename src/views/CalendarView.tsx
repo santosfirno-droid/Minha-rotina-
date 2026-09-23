@@ -1,20 +1,16 @@
 import React, { useState } from 'react';
 import { useRoutine } from '../context/RoutineContext';
 import { useAuth } from '../context/AuthContext';
-import { getDayProgress } from '../services/storage';
 import {
   WEEKDAYS_SHORT,
   MONTHS_FULL,
   formatCurrentDate,
-  formatDurationHuman,
 } from '../utils/date';
+import { RoutineIcon } from '../components/RoutineIcon';
 import {
   ChevronLeft,
   ChevronRight,
-  CheckCircle2,
-  Clock,
   Flame,
-  Calendar as CalendarIcon,
   Check,
 } from 'lucide-react';
 
@@ -27,8 +23,8 @@ export const CalendarView: React.FC = () => {
     selectedDate,
     setSelectedDate,
     isTaskCompleted,
-    getHabitStats,
     toggleTask,
+    getDayProgressForDate,
   } = useRoutine();
 
   const [currentMonthDate, setCurrentMonthDate] = useState<Date>(() => {
@@ -59,7 +55,7 @@ export const CalendarView: React.FC = () => {
 
   // Selected date details
   const selectedDayOfWeek = new Date(selectedDate + 'T12:00:00').getDay();
-  const selectedProgress = getDayProgress(user.id, selectedDate);
+  const selectedProgress = getDayProgressForDate(selectedDate);
   const selectedRoutines = routines.filter(
     (r) => r.isActive && r.daysOfWeek.includes(selectedDayOfWeek)
   );
@@ -134,7 +130,7 @@ export const CalendarView: React.FC = () => {
             const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
             const isToday = dateStr === todayDate;
             const isSelected = dateStr === selectedDate;
-            const progress = getDayProgress(user.id, dateStr);
+            const progress = getDayProgressForDate(dateStr);
 
             // Completion badge styling
             let indicatorBg = 'bg-slate-100';
@@ -241,8 +237,8 @@ export const CalendarView: React.FC = () => {
 
               return (
                 <div key={routine.id} className="space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
-                    <span>{routine.icon}</span>
+                  <div className="flex items-center gap-2 text-xs font-bold text-slate-700 uppercase">
+                    <RoutineIcon icon={routine.icon} className="w-3.5 h-3.5 text-blue-600" />
                     <span>{routine.name}</span>
                   </div>
 
@@ -274,7 +270,7 @@ export const CalendarView: React.FC = () => {
 
                           {task.isHabit && (
                             <span className="text-amber-600 flex items-center gap-1 font-bold text-[10px]">
-                              <Flame className="w-3 h-3 fill-current" /> Hábito
+                              <Flame className="w-3 h-3 fill-amber-500 text-amber-500" /> Hábito
                             </span>
                           )}
                         </div>
