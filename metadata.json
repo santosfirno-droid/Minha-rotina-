@@ -1,0 +1,7 @@
+{
+  "name": "Minha Rotina",
+  "description": "Aplicativo de organização pessoal focado em rotinas, hábitos e produtividade diária. Organize seu dia, viva no seu ritmo.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
